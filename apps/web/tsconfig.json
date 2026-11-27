@@ -10,7 +10,10 @@
     "declaration": false,
     "declarationMap": false,
     "allowImportingTsExtensions": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": {
+      "@siteaudit/config": ["../../packages/config/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
 }

@@ -10,6 +10,7 @@ export default defineConfig({
     // Tests resolve workspace packages from source, so `npm test` needs no build first.
     alias: {
       "@siteaudit/audit-rules": pkg("audit-rules"),
+      "@siteaudit/config": pkg("config"),
       "@siteaudit/report-template": pkg("report-template"),
       "@siteaudit/shared-types": pkg("shared-types"),
       "@siteaudit/validation": pkg("validation"),

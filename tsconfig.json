@@ -18,6 +18,9 @@
     },
     {
       "path": "apps/worker"
+    },
+    {
+      "path": "packages/config"
     }
   ]
 }

@@ -13,7 +13,8 @@
       "@siteaudit/shared-types": ["../packages/shared-types/src/index.ts"],
       "@siteaudit/validation": ["../packages/validation/src/index.ts"],
       "@siteaudit/audit-rules": ["../packages/audit-rules/src/index.ts"],
-      "@siteaudit/report-template": ["../packages/report-template/src/index.ts"]
+      "@siteaudit/report-template": ["../packages/report-template/src/index.ts"],
+      "@siteaudit/config": ["../packages/config/src/index.ts"]
     }
   },
   "include": ["**/*.ts"]

@@ -3,7 +3,7 @@
 Audits a public website URL, collects real measurements, explains findings in plain language,
 prioritises the fixes and produces a client-ready PDF.
 
-**Status: Phase 0, scaffolding.** Nothing audits a website yet. See
+**Status: Phase 1, contracts.** Nothing audits a website yet. See
 [`docs/PLAN.md`](docs/PLAN.md) for the phase plan, risks and open questions.
 
 ## Source of truth
@@ -43,8 +43,8 @@ starts without any of them and serves `GET /health`.
 | `npm run ci` | all of the above, in the order CI runs them |
 | `npm run clean` | removes every `dist/` and `.tsbuildinfo` |
 
-Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 82 tests passing,
-build 0 across all seven workspaces.
+Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 133 tests passing,
+build 0 across all eight workspaces.
 
 ## Layout
 
@@ -54,11 +54,12 @@ apps/
   api/          Express, GET /health        (npm run start -w @siteaudit/api)
   worker/       queue consumer, not wired   (no Redis yet)
 packages/
-  shared-types/ domain types and unions
+  shared-types/ domain enums, entity types, error codes and API envelopes
   validation/   URL safety gate (SSRF) + Zod request contracts
+  config/       environment schemas, one per process, validated at startup
   audit-rules/  rule interface, empty registry
   report-template/ template version + snapshot metadata
-tests/          integration and e2e suites (scaffold test only)
+tests/          unit tests for the API envelope and env guards, plus integration/e2e
 supabase/migrations/   empty by design
 docs/           the specification and the plan
 ```

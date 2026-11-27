@@ -10,7 +10,8 @@ Sliced so each phase ends with something that can be run and judged, and so the 
 | Phase | Scope | Done when |
 |---|---|---|
 | **0 · Foundation** | workspaces, strict TS, lint, format, test, CI, env docs, empty app/package skeletons | `npm ci && npm run ci` passes on a clean checkout |
-| **1 · URL safety** | `packages/validation`: scheme, credentials, ports, IP and DNS rules | unit tests cover every blocked range, including v4-mapped, NAT64, 6to4 |
+| **1 · Contracts** | shared domain types and enums, Zod schemas for audits, findings, pagination, profile and AI output, env validation per process, typed errors and envelopes | contracts compile; invalid input produces one predictable code with a field path |
+| **1b · URL safety** | `packages/validation`: scheme, credentials, ports, IP and DNS rules | unit tests cover every blocked range, including v4-mapped, NAT64, 6to4 |
 | **2 · Bounded fetcher** | HTTP fetch pinned to validated addresses, redirect revalidation, size/time limits | tests: redirect to metadata, redirect loop, oversized body, rebind simulation |
 | **3 · Rules + scoring** | HTML parse, rule engine, normalisation, deterministic scoring with weights from PRD FR-13 | fixture pages produce stable findings and a reproducible score |
 | **4 · Jobs** | Redis + BullMQ, worker lifecycle, stage reporting, partial results | a real site is audited end to end without holding an HTTP request open |
@@ -21,10 +22,13 @@ Phase 1 was already implemented before this plan was written; see the note at th
 
 ## What exists now
 
-- `apps/api` — Express process, `GET /health`, nothing else.
+- `apps/api` — Express process: `GET /health`, a contract probe at
+  `POST /api/v1/audits/validate` (validates, queues nothing), and the error envelope.
 - `apps/web` — Vite + React shell that renders one sentence.
 - `apps/worker` — prints that no queue exists and exits 0.
-- `packages/validation` — the URL safety gate and the Zod request contracts (tested).
+- `packages/validation` — the URL safety gate, plus Zod schemas for create-audit input,
+  pagination and filters, profile updates and AI output (all tested).
+- `packages/config` — one environment schema per process, validated at startup.
 - `packages/shared-types` — domain types and status/stage/category unions.
 - `packages/audit-rules` — the rule interface and an empty registry.
 - `packages/report-template` — template version and snapshot metadata types.
@@ -61,6 +65,9 @@ Phase 1 was already implemented before this plan was written; see the note at th
 | ESLint 9 flat config + Prettier | flat config is the current format; `eslint-config-prettier` stops the two fighting |
 | Tailwind deferred | no UI exists to style; adding it now would be configuration without a consumer |
 | Worker exits 0 with a message | a process that idles and pretends to work is worse than one that says it has nothing to do |
+| `packages/config` added (not in TRD §3) | three processes need three different environments; duplicating the schemas per app is how a secret ends up in the browser schema |
+| Enums declared once in `shared-types`, Zod enums built from them | a literal list that exists twice is two lists that disagree |
+| AI output schemas are `.strict()` | an explanation step that returns a field we did not ask for should fail, not reach a report |
 
 ## Open questions
 
