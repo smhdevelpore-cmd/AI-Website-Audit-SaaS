@@ -12,6 +12,18 @@ house rules. Read this file first, then only the skill file the task needs.
 | [`skills/05-report.md`](skills/05-report.md) | ponytail-audit + ours | The shape of every finding we hand a user |
 | [`skills/06-checklist.md`](skills/06-checklist.md) | all four | The one list to run before saying "done" |
 
+## Precedence
+
+`docs/PRD.md`, `docs/Design.md`, `docs/TRD.md` and `docs/ARD.md` are the source of truth. Where
+a house skill disagrees with them, the document wins and the skill is the thing to fix.
+
+Two documents outrank everything, including each other's detail: **measurements are
+authoritative** (nothing may invent a metric, finding, score or certainty) and **the target site
+is untrusted** (nothing fetches a URL before `packages/validation` says it is safe).
+
+A conflict between two requirements inside the docs is not something to resolve silently. Stop,
+describe it with evidence, and ask.
+
 ## The product we are building
 
 AI-Website-Audit-SaaS: a person pastes a URL and gets a ranked, plain-English audit of

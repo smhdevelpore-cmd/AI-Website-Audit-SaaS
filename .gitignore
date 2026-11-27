@@ -1,6 +1,7 @@
 # Derived data and local tooling. Never commit any of this.
 .venv/
 graphify-out/
+*.tsbuildinfo
 __pycache__/
 *.pyc
 node_modules/
