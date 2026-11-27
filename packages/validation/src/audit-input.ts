@@ -22,7 +22,11 @@ export const targetUrlSchema = z
       parseTargetUrl(value);
     } catch (error) {
       if (error instanceof UnsafeTargetError) {
-        ctx.addIssue({ code: "custom", message: publicMessageFor(error.reason), params: { reason: error.reason } });
+        ctx.addIssue({
+          code: "custom",
+          message: publicMessageFor(error.reason),
+          params: { reason: error.reason },
+        });
         return;
       }
       ctx.addIssue({ code: "custom", message: "That address cannot be audited." });

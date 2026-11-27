@@ -53,15 +53,18 @@ describe("createAuditInputSchema", () => {
   });
 
   it("enforces the page ceiling regardless of the client", () => {
-    expect(issuesFor({ url: "https://example.com", scanScope: { maxPages: AUDIT_MAX_PAGES_LIMIT + 1 } })).toHaveLength(
-      1,
-    );
+    expect(
+      issuesFor({ url: "https://example.com", scanScope: { maxPages: AUDIT_MAX_PAGES_LIMIT + 1 } }),
+    ).toHaveLength(1);
     expect(issuesFor({ url: "https://example.com", scanScope: { maxPages: 0 } })).toHaveLength(1);
     expect(issuesFor({ url: "https://example.com", scanScope: { maxPages: 2.5 } })).toHaveLength(1);
   });
 
   it("caps client labels", () => {
-    const issues = issuesFor({ url: "https://example.com", clientName: "x".repeat(CLIENT_LABEL_MAX_LENGTH + 1) });
+    const issues = issuesFor({
+      url: "https://example.com",
+      clientName: "x".repeat(CLIENT_LABEL_MAX_LENGTH + 1),
+    });
     expect(issues[0]?.path).toEqual(["clientName"]);
   });
 });

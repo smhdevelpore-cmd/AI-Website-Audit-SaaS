@@ -1,0 +1,20 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "moduleResolution": "Bundler",
+    "module": "ESNext",
+    "types": ["node"],
+    "paths": {
+      "@siteaudit/shared-types": ["../packages/shared-types/src/index.ts"],
+      "@siteaudit/validation": ["../packages/validation/src/index.ts"],
+      "@siteaudit/audit-rules": ["../packages/audit-rules/src/index.ts"],
+      "@siteaudit/report-template": ["../packages/report-template/src/index.ts"]
+    }
+  },
+  "include": ["**/*.ts"]
+}

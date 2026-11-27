@@ -123,7 +123,7 @@ const BLOCKED_IPV4_NETWORKS = BLOCKED_IPV4.map(([network, prefix]) => {
 
 function isBlockedIPv4(octets: readonly [number, number, number, number]): boolean {
   const value = ipv4ToInt(octets);
-  return BLOCKED_IPV4_NETWORKS.some(({ base, mask }) => ((value & mask) >>> 0) === base);
+  return BLOCKED_IPV4_NETWORKS.some(({ base, mask }) => (value & mask) >>> 0 === base);
 }
 
 /* ------------------------------------------------------------------ IPv6 */
@@ -141,7 +141,7 @@ function parseIPv6(input: string): Uint8Array | null {
     const octets = parseIPv4(dotted[2] ?? "");
     if (octets === null) return null;
     const [a, b, c, d] = octets;
-    normalised = `${dotted[1] ?? ""}${(((a << 8) | b).toString(16))}:${(((c << 8) | d).toString(16))}`;
+    normalised = `${dotted[1] ?? ""}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
   }
 
   const halves = normalised.split("::");
@@ -162,7 +162,11 @@ function parseIPv6(input: string): Uint8Array | null {
   if (halves.length === 2) {
     const missing = 8 - groups.length;
     if (missing < 1) return null;
-    full = [...groups.slice(0, head.length), ...new Array<number>(missing).fill(0), ...groups.slice(head.length)];
+    full = [
+      ...groups.slice(0, head.length),
+      ...new Array<number>(missing).fill(0),
+      ...groups.slice(head.length),
+    ];
   } else {
     if (groups.length !== 8) return null;
     full = groups;

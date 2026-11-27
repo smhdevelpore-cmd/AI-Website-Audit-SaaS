@@ -142,7 +142,12 @@ describe("rejects IPv4 addresses that are not public", () => {
   }
 
   it("accepts the public neighbours of blocked blocks", () => {
-    for (const input of ["http://172.32.0.1/", "http://11.0.0.1/", "http://192.169.0.1/", "http://223.255.255.254/"]) {
+    for (const input of [
+      "http://172.32.0.1/",
+      "http://11.0.0.1/",
+      "http://192.169.0.1/",
+      "http://223.255.255.254/",
+    ]) {
       expect(reasonOf(() => parseTargetUrl(input))).toBe("no-error");
     }
   });
@@ -246,12 +251,12 @@ describe("assertSafeTarget validates every DNS answer", () => {
   });
 
   it("rejects an empty answer set and a failing lookup", async () => {
-    expect(await asyncReasonOf(() => assertSafeTarget("https://example.com", { resolver: resolverOf([]) }))).toBe(
-      "dns-failed",
-    );
-    expect(await asyncReasonOf(() => assertSafeTarget("https://example.com", { resolver: throwingResolver }))).toBe(
-      "dns-failed",
-    );
+    expect(
+      await asyncReasonOf(() => assertSafeTarget("https://example.com", { resolver: resolverOf([]) })),
+    ).toBe("dns-failed");
+    expect(
+      await asyncReasonOf(() => assertSafeTarget("https://example.com", { resolver: throwingResolver })),
+    ).toBe("dns-failed");
   });
 
   it("does not resolve a literal address, so a literal cannot be rebound", async () => {

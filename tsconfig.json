@@ -1,4 +1,23 @@
 {
   "files": [],
-  "references": [{ "path": "packages/validation" }]
+  "references": [
+    {
+      "path": "packages/shared-types"
+    },
+    {
+      "path": "packages/validation"
+    },
+    {
+      "path": "packages/audit-rules"
+    },
+    {
+      "path": "packages/report-template"
+    },
+    {
+      "path": "apps/api"
+    },
+    {
+      "path": "apps/worker"
+    }
+  ]
 }
