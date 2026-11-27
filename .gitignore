@@ -1,0 +1,12 @@
+# Derived data and local tooling. Never commit any of this.
+.venv/
+graphify-out/
+__pycache__/
+*.pyc
+node_modules/
+.next/
+dist/
+build/
+.env
+.env.*
+!.env.example
