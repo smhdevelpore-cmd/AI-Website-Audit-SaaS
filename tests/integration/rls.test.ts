@@ -67,7 +67,7 @@ beforeAll(async () => {
 
   const addChild = async (auditId: string, url: string): Promise<string> => {
     const page = await f.database.db.query<{ id: string }>(
-      `insert into public.audit_pages (audit_id, url) values ($1,$2) returning id`,
+      `insert into public.audit_pages (audit_id, url, final_url) values ($1,$2,$2) returning id`,
       [auditId, url],
     );
     const pageId = page.rows[0]?.id;
@@ -377,7 +377,7 @@ describe("ownership lifecycle", () => {
       [doomed.id],
     );
     await asService(
-      `insert into public.audit_pages (audit_id, url) values ('11111111-1111-4111-8111-111111111111','https://doomed.example/p')`,
+      `insert into public.audit_pages (audit_id, url, final_url) values ('11111111-1111-4111-8111-111111111111','https://doomed.example/p','https://doomed.example/p')`,
     );
     await asService(
       `insert into public.audit_findings (audit_id, issue_code, category, severity, title, description, evidence, source, confidence)

@@ -261,6 +261,68 @@ describe("supabase migrations", () => {
     );
   });
 
+  it("stores the page snapshot a crawl produces, and refuses impossible snapshots", async () => {
+    const userId = (
+      await database.db.query<{ id: string }>(
+        `insert into auth.users (email) values ('pages@example.com') returning id`,
+      )
+    ).rows[0]?.id as string;
+    const auditId = (
+      await database.db.query<{ id: string }>(
+        `insert into public.audits (user_id, url, host) values ($1,'https://p.example','p.example') returning id`,
+        [userId],
+      )
+    ).rows[0]?.id as string;
+
+    const pageId = (
+      await database.db.query<{ id: string }>(
+        `insert into public.audit_pages (audit_id, url, final_url, http_status, content_type, byte_size,
+                                          duration_ms, title, parsed, fetched_at)
+         values ($1,'https://p.example/','https://p.example/home',200,'text/html',1234,87,'Home',
+                 '{"title":"Home","links":[]}'::jsonb, now()) returning id`,
+        [auditId],
+      )
+    ).rows[0]?.id as string;
+    expect(pageId).toBeTruthy();
+
+    // A failure row carries a code instead of a page.
+    await database.db.exec(
+      `insert into public.audit_pages (audit_id, url, final_url, fetch_error)
+       values ('${auditId}','https://p.example/gone','https://p.example/gone','unsafe_target')`,
+    );
+
+    const attempts: Array<[string, RegExp, string]> = [
+      [
+        "negative-duration",
+        /audit_pages_duration_ms_range/,
+        `insert into public.audit_pages (audit_id, url, final_url, duration_ms)
+         values ('${auditId}','https://p.example/neg','https://p.example/neg',-1)`,
+      ],
+      [
+        "error-with-prose",
+        /audit_pages_fetch_error_shape/,
+        // Exception text would leak an address; the column only accepts a code.
+        `insert into public.audit_pages (audit_id, url, final_url, fetch_error)
+         values ('${auditId}','https://p.example/prose','https://p.example/prose','connect ECONNREFUSED 10.0.0.1:80')`,
+      ],
+      [
+        "parsed-array",
+        /audit_pages_parsed_object/,
+        `insert into public.audit_pages (audit_id, url, final_url, parsed)
+         values ('${auditId}','https://p.example/arr','https://p.example/arr','[]'::jsonb)`,
+      ],
+      [
+        "final-url-required",
+        /null value in column "final_url"/,
+        `insert into public.audit_pages (audit_id, url) values ('${auditId}','https://p.example/nofinal')`,
+      ],
+    ];
+
+    for (const [label, pattern, sql] of attempts) {
+      await expect(database.db.exec(sql), label).rejects.toThrow(pattern);
+    }
+  });
+
   it("deduplicates findings per audit, issue code and page scope", async () => {
     const userId = (
       await database.db.query<{ id: string }>(

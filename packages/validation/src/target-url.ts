@@ -282,11 +282,23 @@ export function assertPublicHostname(hostname: string): void {
 
 /* --------------------------------------------------------------- parsing */
 
+export interface ParseTargetUrlOptions {
+  /**
+   * Ports a fetch may use. Defaults to `ALLOWED_PORTS` (80 and 443, TRD §7).
+   *
+   * The override exists for one reason: a test fixture server cannot bind a privileged port, and
+   * a crawler test that cannot reach a local server would prove nothing. Nothing in the API or the
+   * worker passes it; the crawler's tests do, and a unit test asserts the default still refuses
+   * port 8080.
+   */
+  readonly allowedPorts?: readonly number[];
+}
+
 /**
  * Syntactic gate: scheme, credentials, port, hostname shape, and — when the URL uses an
  * IP literal — the address itself. No network access, so it is safe to call inline.
  */
-export function parseTargetUrl(raw: unknown): URL {
+export function parseTargetUrl(raw: unknown, options: ParseTargetUrlOptions = {}): URL {
   if (typeof raw !== "string") {
     throw new UnsafeTargetError("malformed", "not a string");
   }
@@ -317,7 +329,8 @@ export function parseTargetUrl(raw: unknown): URL {
   }
 
   const port = url.port === "" ? (protocol === "https:" ? 443 : 80) : Number(url.port);
-  if (!(ALLOWED_PORTS as readonly number[]).includes(port)) {
+  const allowedPorts = options.allowedPorts ?? ALLOWED_PORTS;
+  if (!allowedPorts.includes(port)) {
     throw new UnsafeTargetError("port-not-allowed", String(port));
   }
 
@@ -370,6 +383,8 @@ export async function resolveValidatedAddresses(
 
 export interface AssertSafeTargetOptions {
   resolver?: HostResolver;
+  /** See `ParseTargetUrlOptions.allowedPorts`. Defaults to 80 and 443. */
+  allowedPorts?: readonly number[];
 }
 
 export interface SafeTarget {
@@ -382,7 +397,10 @@ export async function assertSafeTarget(
   raw: unknown,
   options: AssertSafeTargetOptions = {},
 ): Promise<SafeTarget> {
-  const url = parseTargetUrl(raw);
+  const url =
+    options.allowedPorts === undefined
+      ? parseTargetUrl(raw)
+      : parseTargetUrl(raw, { allowedPorts: options.allowedPorts });
   const bare = stripBrackets(url.hostname);
 
   const literalFamily = isIP(bare);

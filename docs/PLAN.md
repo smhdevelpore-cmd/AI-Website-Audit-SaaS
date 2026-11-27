@@ -15,11 +15,11 @@ Sliced so each phase ends with something that can be run and judged, and so the 
 | **2 · Supabase schema, auth, ownership** | seven tables, constraints, indexes, RLS, profile provisioning, token verification, ownership helper, browser auth flow | cross-tenant access fails in tests, not in production |
 | **3 · Interface foundation** | design tokens, Tailwind, shared components, app shell, landing, auth screens, dashboard/history/settings shells, accessibility | responsive, labelled, no dead controls; contrast measured and tested |
 | **4 · Audit submission + jobs** | `POST/GET/GET one/DELETE /audits`, server-side limits, BullMQ queue with idempotent jobs and bounded retries, worker with explicit status/stage transitions, Redis health, New Audit and history UI on TanStack Query | a submitted audit is persisted and queued; the UI shows its real status; a queue or database failure never produces a false success |
-| **5 · Bounded fetcher** | HTTP fetch pinned to validated addresses, redirect revalidation, size/time limits | tests: redirect to metadata, redirect loop, oversized body, rebind simulation |
+| **5 · Bounded crawler** | HTTP fetch pinned to validated addresses, redirect revalidation, size/time limits; robots.txt, sitemap and link discovery under a page/depth cap; HTML parser and page snapshots | tests: redirect to metadata, redirect loop, oversized body, rebind simulation, robots and sitemap policy, page/depth/concurrency caps, fixture crawl |
 | **6 · Rules + scoring** | HTML parse, rule engine, normalisation, deterministic scoring with weights from PRD FR-13 | fixture pages produce stable findings and a reproducible score |
 | **7 · AI + PDF** | evidence-only explanations, schema validation, PDF from stored snapshot | AI failure leaves deterministic findings intact; PDF renders from the snapshot alone |
 
-Phases 0–4 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
+Phases 0–5 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
 the end.
 
 ### Phase numbering changed
@@ -42,6 +42,12 @@ is empty, so the only thing it does with a target is validate it and record
 `scanner_not_ready`. The crawler still has to exist before anything fetches a page, and the
 fetcher phase is still the one that closes redirects, the connected address and response size.
 
+Phase 5 finally arrived, as the *crawler* rather than only the fetcher: the TRD's discovery rules
+(robots.txt, sitemaps, link depth, page cap) are useless without the fetch layer they are enforced
+in, and writing them separately would have meant two limits objects. It is one package,
+`@siteaudit/crawler`, and it is still not wired into the worker: `SCAN_STEPS` is empty, so nothing
+in production fetches a page yet. Phase 6 owns that wiring and the rules that read the results.
+
 ## What exists now
 
 - `apps/api` — Express process: `GET /health` (auth + queue), the error envelope, bearer-token
@@ -55,9 +61,13 @@ fetcher phase is still the one that closes redirects, the connected address and 
   See [`docs/UI.md`](UI.md).
 - `apps/worker` — BullMQ consumer: claims an audit (`queued → running`), revalidates the target,
   records usage, then reports `failed/scanner_not_ready` because the scan pipeline has no steps
-  yet. Retries are classified (infrastructure only), every write is conditional, and every stored
+  yet — the crawler exists but nothing calls it. Retries are classified (infrastructure only), every write is conditional, and every stored
   message is generated from a code. See [`docs/QUEUES.md`](QUEUES.md).
 - `packages/queue` — the queue contract, the BullMQ adapter and the in-memory queue the tests use.
+- `packages/crawler` — the only code that talks to a third-party site: `safeFetch` (target gate, DNS
+  answer checks, pinned connection, per-hop revalidation, byte and time caps), `crawlSite` (robots,
+  sitemaps, links, page/depth/concurrency caps) and `toPageRows`. See
+  [`docs/CRAWLER.md`](CRAWLER.md).
 - `supabase/migrations/` — schema for the seven tables, profile provisioning, RLS policies.
 - `tests/support/database.ts` — PGlite harness that runs those migrations unmodified
 - `packages/validation` — the URL safety gate, plus Zod schemas for create-audit input,
@@ -67,18 +77,22 @@ fetcher phase is still the one that closes redirects, the connected address and 
   sources, report statuses and usage kinds (the lists the database constraints mirror).
 - `packages/audit-rules` — the rule interface and an empty registry.
 - `packages/report-template` — template version and snapshot metadata types.
-- `tests/`, `supabase/migrations/` — empty by design.
+- `tests/` — unit, component and integration suites, including the PGlite schema/RLS suites and the
+  crawler's local-fixture suites. Nothing in them reaches the public internet.
 
 ## Risks, ranked by what would hurt first
 
-1. **SSRF through the parts not built yet.** The URL gate validates the first hop only.
-   Redirects, the socket's actual destination (DNS rebinding) and response size are still open.
-   Nothing may crawl until phase 3 closes them.
+1. **SSRF, narrowed but not eliminated.** Phase 5 closes the request path: every hop is
+   validated, every DNS answer is checked, the socket is pinned to the checked address, and
+   response size, redirect count and time are bounded. What remains is outside the process — a
+   blocklist is a control, not a proof, and a proxy, a compromised runtime or an egress path we do
+   not own can still reach a private network. The network-level restriction the deployment must
+   apply is written down in [`docs/CRAWLER.md`](CRAWLER.md) §5.4.
 2. **Lighthouse/PageSpeed as a single point of failure.** Quota, latency and price are outside
    our control. The provider must be able to fail into a `partial` audit, never into a fabricated
    score.
 3. **AI drifting into invention.** Every prompt carries only stored evidence and the output is
-   schema-validated, but the failure mode is fluent prose that is wrong. Phase 6 needs a check
+   schema-validated, but the failure mode is fluent prose that is wrong. Phase 7 needs a check
    that each sentence maps to an evidence field.
 4. **RLS mistakes.** A missing policy exposes one client's audit to another. Phase 2 now runs
    as two users, as `anon`, and as the service role, against real PostgreSQL. Still unproven:
@@ -88,6 +102,20 @@ fetcher phase is still the one that closes redirects, the connected address and 
 6. **Scope creep.** The non-goals list in PRD §4 is the guard. Anything not on it waits.
 7. **Bus factor of one.** Migrations, env docs and the runbook stay in the repo so the project
    survives a handover.
+
+## Decisions made in Phase 5
+
+| Decision | Why |
+|---|---|
+| One `@siteaudit/crawler` package, not `fetcher` + `crawler` | The fetch layer and the discovery policy share one limits object and one target gate. Two packages would mean two `limits.ts` or a package that exists only to be imported by its sibling |
+| Pin the connection by replacing `lookup`, rather than checking an address and then fetching by name | A DNS server that changes its answer between the check and the connection would otherwise turn a validated host into a private one |
+| Validate *every* DNS answer, not the first | A resolver that returns one public and one private address is either broken or hostile; both deserve a refusal |
+| The start page is fetched even when robots.txt disallows it; everything discovered obeys robots.txt | The user named that page. A sitemap URL was not named by anyone, so it is discovered, not requested |
+| A page that fails the content-type check becomes a row with `non_html`, not an exception | The report should say "we could not read this page"; an exception would lose the fact that we tried |
+| `parsed` is stored, bounded, in `audit_pages` | Phase 6's rules then read data instead of re-fetching, and the report can explain what was seen even if the site has changed |
+| A migration adds `final_url`, `duration_ms`, `fetch_error`, `parsed` | The Phase 2 table predates the crawler. Storing a redirect's destination and a failure's code is cheap now and a re-fetch later |
+| Test-only overrides (`allowedPorts`, `assertAddress`, `resolver`) instead of weakening the default | A fixture on `127.0.0.1` must be reachable without making the shipped gate permissive. Each override has a test proving the default refuses the same target |
+| Local `node:http` fixtures, never a real site, in CI | A test that depends on example.com's uptime is a test that fails for reasons the code did not cause |
 
 ## Decisions made in Phase 4
 

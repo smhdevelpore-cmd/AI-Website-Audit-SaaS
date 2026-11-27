@@ -3,15 +3,17 @@
 Audits a public website URL, collects real measurements, explains findings in plain language,
 prioritises the fixes and produces a client-ready PDF.
 
-**Status: Phase 4, audit submission and jobs.** You can sign up, submit an address, watch it move
-from `queued` to a finished state, filter and cancel your history, and edit your profile.
-**Nothing crawls a website yet** — the worker validates the target and records that this build
-cannot scan, so no audit invents a score. Submissions need Redis; without it the API answers
-`503` rather than queueing a job nothing will run.
+**Status: Phase 5, the bounded crawler.** You can sign up, submit an address, watch it move from
+`queued` to a finished state, filter and cancel your history, and edit your profile.
+**The crawler exists and is tested, but the worker does not call it yet** — the scan pipeline has
+no steps, so the worker validates the target and records that this build cannot scan. No audit
+invents a score. Submissions need Redis; without it the API answers `503` rather than queueing a
+job nothing will run.
 
 - [`docs/PLAN.md`](docs/PLAN.md) — phase plan, risks, decisions, open questions
 - [`docs/UI.md`](docs/UI.md) — tokens, contrast measurements, components, accessibility, what is absent and why
 - [`docs/QUEUES.md`](docs/QUEUES.md) — submission, the job contract, retry rules, cancellation, what is unproven
+- [`docs/CRAWLER.md`](docs/CRAWLER.md) — the fetch rules, failure codes, limits, discovery policy, residual SSRF risk and the egress recommendation
 - [`docs/SUPABASE.md`](docs/SUPABASE.md) — local setup, migrations, what the RLS tests cover
 
 ## Source of truth
@@ -58,9 +60,9 @@ REDIS_URL=redis://localhost:6379 npm run dev --workspace @siteaudit/api
 | `npm run ci` | all of the above, in the order CI runs them |
 | `npm run clean` | removes every `dist/` and `.tsbuildinfo` |
 
-Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 353 tests passing,
-build 0 across all nine workspaces. Two tests are skipped by design: the BullMQ suite
-runs only with `REDIS_TEST_URL`.
+Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 427 tests passing
+(28 files, 2 skipped), build 0 across all ten workspaces. Two tests are skipped by design: the
+BullMQ suite runs only with `REDIS_TEST_URL`.
 
 ## Layout
 
@@ -73,11 +75,13 @@ packages/
   shared-types/ domain enums, entity types, error codes and API envelopes
   validation/   URL safety gate (SSRF) + Zod request contracts
   queue/        queue contract, BullMQ adapter, in-memory queue for tests
+  crawler/      safe fetch, robots/sitemap/link discovery, HTML parser, audit_pages rows
   config/       environment schemas, one per process, validated at startup
   audit-rules/  rule interface, empty registry
   report-template/ template version + snapshot metadata
-tests/          unit, component (jsdom) and integration: RLS isolation, migrations, API auth, UI
-supabase/migrations/   schema, profile provisioning, row-level security
+tests/          unit, component (jsdom) and integration: RLS isolation, migrations, API auth, UI,
+                crawler against local fixture servers (never a real site)
+supabase/migrations/   schema, profile provisioning, row-level security, audit page snapshots
 docs/           the specification and the plan
 ```
 

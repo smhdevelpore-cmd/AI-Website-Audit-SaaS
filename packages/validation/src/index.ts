@@ -15,6 +15,7 @@ export {
 export type {
   AllowedProtocol,
   AssertSafeTargetOptions,
+  ParseTargetUrlOptions,
   HostResolver,
   ResolvedAddress,
   SafeTarget,

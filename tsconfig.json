@@ -11,6 +11,9 @@
       "path": "packages/validation"
     },
     {
+      "path": "packages/crawler"
+    },
+    {
       "path": "packages/audit-rules"
     },
     {
