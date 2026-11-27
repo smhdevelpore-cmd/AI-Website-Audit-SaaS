@@ -13,6 +13,10 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+import type { AuditPageRow } from "@siteaudit/crawler";
+import type { ScoreResult } from "@siteaudit/audit-rules";
+import type { NewFindingRow } from "./finding-rows.js";
+
 import {
   publicAuditFailureMessage,
   type AuditFailureCode,
@@ -53,6 +57,21 @@ export interface WorkerData {
     readonly kind: UsageKind;
     readonly quantity: number;
   }): Promise<void>;
+  /**
+   * Writes the pages a crawl produced and returns their database ids by URL.
+   *
+   * Findings reference a page row, so ids have to come back from the same write that created
+   * them. Upsert on `(audit_id, url)` makes a retried crawl overwrite its own rows instead of
+   * failing on the unique constraint.
+   */
+  savePages(auditId: string, rows: readonly AuditPageRow[]): Promise<ReadonlyMap<string, string>>;
+  /**
+   * Replaces this audit's findings. The delete is not laziness: a retry must not leave the
+   * findings of the attempt that crashed next to the ones that succeeded.
+   */
+  saveFindings(auditId: string, rows: readonly NewFindingRow[]): Promise<void>;
+  /** Stores the score and the version of the formula that produced it, before the audit finishes. */
+  saveScores(auditId: string, scores: ScoreResult): Promise<void>;
 }
 
 const AUDIT_COLUMNS = "id,user_id,url,host,status,stage,max_pages,started_at";
@@ -142,6 +161,49 @@ export function createSupabaseWorkerData(options: SupabaseWorkerDataOptions): Wo
         .is("completed_at", null)
         .in("status", ["queued", "running"]);
       if (error) failed("audits.finish", error);
+    },
+
+    async savePages(auditId, rows) {
+      if (rows.length === 0) return new Map<string, string>();
+      const { data, error } = await client
+        .from("audit_pages")
+        .upsert(
+          rows.map((row) => ({ ...row, audit_id: auditId })),
+          { onConflict: "audit_id,url" },
+        )
+        .select("id,url");
+      if (error) failed("audit_pages.upsert", error);
+
+      const ids = new Map<string, string>();
+      for (const row of (data ?? []) as Array<{ id: string; url: string }>) ids.set(row.url, row.id);
+      return ids;
+    },
+
+    async saveFindings(auditId, rows) {
+      const { error: deleteError } = await client.from("audit_findings").delete().eq("audit_id", auditId);
+      if (deleteError) failed("audit_findings.delete", deleteError);
+      if (rows.length === 0) return;
+
+      // PostgREST has a request-size ceiling; a 25-page audit is a few hundred rows at most, but
+      // chunking keeps a large crawl from turning into one oversized statement.
+      for (let index = 0; index < rows.length; index += 200) {
+        const chunk = rows.slice(index, index + 200).map((row) => ({ ...row, audit_id: auditId }));
+        const { error } = await client.from("audit_findings").insert(chunk);
+        if (error) failed("audit_findings.insert", error);
+      }
+    },
+
+    async saveScores(auditId, scores) {
+      const { error } = await client
+        .from("audits")
+        .update({
+          overall_score: scores.overall,
+          category_scores: scores.categories,
+          scoring_version: scores.scoringVersion,
+        })
+        .eq("id", auditId)
+        .in("status", ["running", "queued"]);
+      if (error) failed("audits.saveScores", error);
     },
 
     async recordUsage({ userId, auditId, kind, quantity }) {

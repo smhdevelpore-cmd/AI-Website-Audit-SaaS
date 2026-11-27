@@ -6,9 +6,12 @@
  * checks would let a test pass on behaviour the real worker does not have.
  */
 
+import type { AuditPageRow } from "@siteaudit/crawler";
+import type { ScoreResult } from "@siteaudit/audit-rules";
 import { publicAuditFailureMessage, type AuditStage, type UsageKind } from "@siteaudit/shared-types";
 
 import type { AuditFinish, WorkerAudit, WorkerData } from "../../apps/worker/src/data.js";
+import type { NewFindingRow } from "../../apps/worker/src/finding-rows.js";
 import type { InMemoryUserData } from "./audit-store.js";
 
 export interface RecordedUsage {
@@ -23,6 +26,10 @@ export class InMemoryWorkerData implements WorkerData {
   readonly stages: Array<{ auditId: string; stage: AuditStage }> = [];
   /** Writes that the SQL would have refused, kept so a test can assert nothing happened. */
   readonly refused: string[] = [];
+  /** Pages, findings and scores as written, keyed by audit id. */
+  readonly pages = new Map<string, AuditPageRow[]>();
+  readonly findings = new Map<string, NewFindingRow[]>();
+  readonly scores = new Map<string, ScoreResult>();
 
   /** Set to make the next `loadAudit` (and only that call) throw, to simulate a DB blip. */
   failNextLoad = false;
@@ -105,5 +112,36 @@ export class InMemoryWorkerData implements WorkerData {
 
   async recordUsage(record: RecordedUsage): Promise<void> {
     this.usage.push(record);
+  }
+
+  async savePages(auditId: string, rows: readonly AuditPageRow[]): Promise<ReadonlyMap<string, string>> {
+    // Mirrors `upsert ... on conflict (audit_id, url)`: a retried crawl replaces its own rows.
+    const existing = this.pages.get(auditId) ?? [];
+    const byUrl = new Map(existing.map((row) => [row.url, row]));
+    for (const row of rows) byUrl.set(row.url, row);
+    this.pages.set(auditId, [...byUrl.values()]);
+
+    const ids = new Map<string, string>();
+    for (const row of rows) ids.set(row.url, `page:${row.url}`);
+    return ids;
+  }
+
+  async saveFindings(auditId: string, rows: readonly NewFindingRow[]): Promise<void> {
+    this.findings.set(auditId, [...rows]);
+  }
+
+  async saveScores(auditId: string, scores: ScoreResult): Promise<void> {
+    this.scores.set(auditId, scores);
+    const row = this.store.audits.get(auditId);
+    if (row === undefined || row.completed_at !== null) {
+      this.refused.push(`saveScores:${auditId}`);
+      return;
+    }
+    this.store.audits.set(auditId, {
+      ...row,
+      overall_score: scores.overall,
+      category_scores: [...scores.categories],
+      scoring_version: scores.scoringVersion,
+    });
   }
 }

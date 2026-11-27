@@ -212,7 +212,8 @@ describe("parsePage", () => {
     expect(parsed.h1Count).toBe(2);
     expect(parsed.headings.h2).toBe(1);
     expect(parsed.images).toBe(3);
-    expect(parsed.imagesWithoutAlt).toBe(2);
+    // `alt=""` is decoration, not a defect; only the image with no attribute is counted.
+    expect(parsed.imagesWithoutAlt).toBe(1);
   });
 
   it("resolves links against <base> and de-duplicates them", () => {

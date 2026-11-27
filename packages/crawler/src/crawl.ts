@@ -21,6 +21,7 @@ import {
   DEFAULT_FETCH_LIMITS,
   DEFAULT_USER_AGENT,
   MAX_CRAWL_DEPTH,
+  pickStoredHeaders,
   type CrawlLimits,
   type FetchLimits,
 } from "./limits.js";
@@ -56,6 +57,8 @@ export interface CrawledPage {
   readonly depth: number;
   readonly status: number | null;
   readonly contentType: string | null;
+  /** The response headers a rule may ask about (`STORED_HEADERS`), lower-cased. */
+  readonly headers: Readonly<Record<string, string>>;
   readonly byteSize: number;
   readonly durationMs: number;
   readonly title: string | null;
@@ -193,6 +196,7 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawlSummary> {
         depth: item.depth,
         status: null,
         contentType: null,
+        headers: {},
         byteSize: 0,
         durationMs: result.durationMs,
         title: null,
@@ -209,6 +213,7 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawlSummary> {
       depth: item.depth,
       status: result.status,
       contentType: result.contentType,
+      headers: pickStoredHeaders(result.headers),
       byteSize: result.byteSize,
       durationMs: result.durationMs,
       title: parsed.title,

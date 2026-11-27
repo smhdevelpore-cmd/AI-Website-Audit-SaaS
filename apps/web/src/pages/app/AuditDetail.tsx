@@ -9,7 +9,7 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { ApiError } from "../../lib/api.js";
-import { presentFailure, presentStage, presentStatus } from "../../lib/audit-labels.js";
+import { presentCategory, presentFailure, presentStage, presentStatus } from "../../lib/audit-labels.js";
 import { useAudit, useCancelAudit } from "../../lib/audits.js";
 import { Badge } from "../../components/ui/Badge.js";
 import { Button } from "../../components/ui/Button.js";
@@ -35,6 +35,8 @@ export function AuditDetail() {
   const cancel = useCancelAudit();
 
   const audit = query.data;
+  const score = audit?.overallScore ?? null;
+  const weightedCategories = (audit?.categoryScores ?? []).filter((entry) => entry.weight > 0);
 
   if (query.isPending) {
     return (
@@ -223,11 +225,42 @@ export function AuditDetail() {
         <h2 id="results-heading" className="text-base font-semibold text-ink">
           Results
         </h2>
-        <p className="mt-2 text-sm text-muted">
-          {audit.status === "failed" || audit.status === "cancelled"
-            ? "This audit produced no results, so there is nothing to show here."
-            : "Scores and findings arrive when the scan produces them. This build has no scanner yet, so a submitted audit ends without results rather than with invented ones."}
-        </p>
+        {score === null ? (
+          <p className="mt-2 text-sm text-muted">
+            {audit.status === "failed" || audit.status === "cancelled"
+              ? "This audit produced no results, so there is nothing to show here."
+              : audit.status === "completed" || audit.status === "partial"
+                ? "This audit finished without a score, so there is nothing to show here."
+                : "Scores appear here when the scan finishes."}
+          </p>
+        ) : (
+          <div className="mt-3">
+            <p className="flex items-baseline gap-2">
+              <span className="text-2xl font-semibold text-ink">{score}</span>
+              <span className="text-sm text-muted">out of 100</span>
+            </p>
+            <dl className="mt-4 flex flex-col">
+              {weightedCategories.map((entry) => (
+                <div
+                  key={entry.category}
+                  className="flex items-baseline justify-between gap-4 border-t border-line py-2 first:border-t-0"
+                >
+                  <dt className="text-sm text-muted">
+                    {presentCategory(entry.category)}
+                    <span className="ml-1 text-xs">({entry.weight}% of the score)</span>
+                  </dt>
+                  <dd className="text-sm font-medium text-ink">
+                    {entry.score === null ? "N/A" : entry.score}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-4 text-sm text-muted">
+              Weighted across the categories this scan could check. A category shown as N/A was not checked,
+              and its weight is shared by the others; link findings count towards Technical.
+            </p>
+          </div>
+        )}
       </section>
     </div>
   );

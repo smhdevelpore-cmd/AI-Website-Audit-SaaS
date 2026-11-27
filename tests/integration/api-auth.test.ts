@@ -38,6 +38,8 @@ const AUDIT_BASE: Omit<AuditRow, "id" | "user_id" | "url" | "host"> = {
   pages_scanned: 7,
   was_partial: false,
   scoring_version: "1.0.0",
+  overall_score: null,
+  category_scores: null,
   error_code: null,
   error_message: null,
   started_at: "2026-11-27T10:00:00.000Z",

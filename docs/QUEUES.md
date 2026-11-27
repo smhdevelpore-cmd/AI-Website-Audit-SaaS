@@ -14,7 +14,7 @@ POST /audits ──► validate (schema + SSRF syntax gate)
              worker picks it up ──► queued → running (stage: validating)
                                  ──► record usage
                                  ──► validate target again (DNS + IP)
-                                 ──► run the scan pipeline (no steps yet)
+                                 ──► crawl → rules → score (each its own stage)
                                  ──► failed / completed / partial + completed_at
 ```
 
@@ -128,17 +128,25 @@ Verified in this environment: with `REDIS_URL` pointing at a closed port, `/heal
 
 ## 8. What the worker does today
 
-The scan pipeline is a list of steps (`apps/worker/src/pipeline.ts`) and **the list is empty**.
-A job therefore runs:
+Three steps, in the TRD's order (`apps/worker/src/scan-steps.ts`):
 
-`queued → running (validating) → failed (scanner_not_ready)`
+`queued → running (validating) → crawling → rules → scoring → completed | partial`
 
-with the message *"This build cannot scan websites yet. Nothing was measured and no report was
-produced."* That is the honest end state: the row is not left `queued` forever, no score is
-invented, and the UI shows exactly that sentence on the audit's page.
+- **crawling** — a bounded crawl of the audit's URL (robots.txt, sitemap, links, page and depth
+  caps), storing each page as an `audit_pages` row. If the start page cannot be read the audit
+  fails `target_unreachable` immediately: that is the site's answer, not a transient failure, and
+  retrying it three times would only delay the truth.
+- **rules** — the deterministic rules (`@siteaudit/audit-rules`) over the crawl. Findings are
+  written per audit and per page; see [`RULES.md`](RULES.md).
+- **scoring** — the weighted score, stored with `scoring_version` before the audit finishes, so a
+  `completed` row can never exist without the number and the formula that produced them.
 
-Phase 5 adds steps. The runner already handles their results (`continue` or
-`{status, pagesScanned}`), their stages (`audits.stage`), their failures, and the time budget.
+A page that failed to fetch (a timeout, a PDF served at a page URL) makes the audit **partial**:
+the results cover what was read. A site that answered nothing is **failed**. Neither case invents
+a result, and a failed audit carries no score at all.
+
+Not yet in the pipeline: the PageSpeed provider and the AI explanation (Phase 7). Their stages
+already exist in the schema, so they slot in between `rules` and `scoring` without a migration.
 
 ## 9. Running it
 

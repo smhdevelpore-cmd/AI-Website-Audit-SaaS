@@ -29,7 +29,8 @@ import type {
 const PROFILE_COLUMNS = "id,name,agency_name,website,timezone,logo_url,created_at,updated_at";
 const AUDIT_COLUMNS =
   "id,user_id,url,host,client_name,project_name,status,stage,max_pages,pages_scanned," +
-  "was_partial,scoring_version,error_code,error_message,started_at,completed_at,created_at,updated_at";
+  "was_partial,scoring_version,overall_score,category_scores,error_code,error_message," +
+  "started_at,completed_at,created_at,updated_at";
 
 const ACTIVE_STATUSES = ["queued", "running"] as const;
 

@@ -7,7 +7,7 @@
  * separates tenants.
  */
 
-import { publicAuditFailureMessage } from "@siteaudit/shared-types";
+import { AUDIT_CATEGORIES, publicAuditFailureMessage, type CategoryScore } from "@siteaudit/shared-types";
 
 export interface ProfileRow {
   id: string;
@@ -37,6 +37,8 @@ export interface AuditRow {
   pages_scanned: number;
   was_partial: boolean;
   scoring_version: string | null;
+  overall_score: number | null;
+  category_scores: CategoryScore[] | null;
   error_code: string | null;
   error_message: string | null;
   started_at: string | null;
@@ -123,6 +125,10 @@ export interface AuditView {
   maxPages: number;
   pagesScanned: number;
   partial: boolean;
+  /** 0–100 over the categories that were checked, or null while there is no score. */
+  overallScore: number | null;
+  /** Per-category score and FR-13 weight; `score: null` means N/A, not zero. */
+  categoryScores: readonly CategoryScore[] | null;
   /**
    * `message` is generated from `code`, never read from the row: a stored message could be a
    * database error, and this field is rendered in a browser.
@@ -146,6 +152,24 @@ export function toProfileView(row: ProfileRow): ProfileView {
   };
 }
 
+/**
+ * jsonb is only constrained to be an array, so the shape is checked here rather than trusted.
+ * A malformed row must not become a score the browser renders as a fact.
+ */
+function scoreCategories(value: CategoryScore[] | null): CategoryScore[] | null {
+  if (!Array.isArray(value)) return null;
+  const known = new Set<string>(AUDIT_CATEGORIES);
+  const cleaned: CategoryScore[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) continue;
+    if (!known.has(entry.category)) continue;
+    if (typeof entry.weight !== "number") continue;
+    if (entry.score !== null && typeof entry.score !== "number") continue;
+    cleaned.push({ category: entry.category, score: entry.score, weight: entry.weight });
+  }
+  return cleaned.length === 0 ? null : cleaned;
+}
+
 export function toAuditView(row: AuditRow): AuditView {
   const code = row.error_code ?? (row.error_message === null ? null : "internal_error");
   return {
@@ -159,6 +183,8 @@ export function toAuditView(row: AuditRow): AuditView {
     maxPages: row.max_pages,
     pagesScanned: row.pages_scanned,
     partial: row.was_partial,
+    overallScore: row.overall_score,
+    categoryScores: scoreCategories(row.category_scores),
     error: code === null ? null : { code, message: publicAuditFailureMessage(code) },
     createdAt: row.created_at,
     updatedAt: row.updated_at,

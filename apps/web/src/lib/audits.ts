@@ -10,7 +10,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { isTerminalAuditStatus, type AuditStatus } from "@siteaudit/shared-types";
+import { isTerminalAuditStatus, type AuditStatus, type CategoryScore } from "@siteaudit/shared-types";
 
 import { useAuth } from "../auth/AuthProvider.js";
 import { config } from "../config.js";
@@ -32,6 +32,10 @@ export interface Audit {
   maxPages: number;
   pagesScanned: number;
   partial: boolean;
+  /** 0–100 over the categories the scan could check; null until a score exists. */
+  overallScore: number | null;
+  /** Per-category score and weight; `score: null` is "not checked", never zero. */
+  categoryScores: readonly CategoryScore[] | null;
   error: AuditFailure | null;
   createdAt: string;
   updatedAt: string;

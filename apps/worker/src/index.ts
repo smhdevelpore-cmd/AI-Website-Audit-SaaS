@@ -4,9 +4,9 @@
  * It refuses to start without a queue and without a database, because a worker that is running
  * while unable to do its job is a green light nobody should trust.
  *
- * What it does with a job today: validates the target and records `scanner_not_ready`, because
- * the scan pipeline has no steps yet. That is the truthful outcome — it is not a simulation of
- * a scan and it does not leave a row `queued` forever waiting for a crawler that does not exist.
+ * What it does with a job: validates the target, crawls a bounded set of pages, runs the
+ * deterministic rules, scores the result and stores all three. A page it could not read makes the
+ * audit `partial`; a site it could not reach fails it, in words, without inventing a score.
  */
 
 import { AUDIT_JOB_ATTEMPTS, createBullMqAuditWorker } from "@siteaudit/queue";
@@ -14,7 +14,7 @@ import { assertSafeTarget } from "@siteaudit/validation";
 
 import { loadConfig } from "./config.js";
 import { createSupabaseWorkerData } from "./data.js";
-import { SCAN_STEPS } from "./pipeline.js";
+import { createScanSteps } from "./scan-steps.js";
 import { createProcessor } from "./processor.js";
 
 const config = loadConfig();
@@ -40,10 +40,12 @@ const data = createSupabaseWorkerData({
   serviceRoleKey: config.SUPABASE_SERVICE_ROLE_KEY,
 });
 
+const steps = createScanSteps({ data });
+
 const process_ = createProcessor({
   data,
   resolveTarget: (url) => assertSafeTarget(url),
-  steps: SCAN_STEPS,
+  steps,
   timeoutMs: config.AUDIT_TIMEOUT_MS,
   maxAttempts: AUDIT_JOB_ATTEMPTS,
   log,
@@ -62,7 +64,7 @@ const worker = createBullMqAuditWorker({
   },
 });
 
-worker.on("ready", () => log("ready", { concurrency: config.AUDIT_CONCURRENCY, steps: SCAN_STEPS.length }));
+worker.on("ready", () => log("ready", { concurrency: config.AUDIT_CONCURRENCY, steps: steps.length }));
 worker.on("error", (error) => log("worker error", { error: error.message }));
 
 async function shutdown(signal: string): Promise<void> {

@@ -1,7 +1,15 @@
 export { safeFetch } from "./fetch.js";
 export type { FetchFailure, FetchFailureCode, FetchResult, FetchSuccess, SafeFetchOptions } from "./fetch.js";
 
-export { DEFAULT_CRAWL_LIMITS, DEFAULT_FETCH_LIMITS, DEFAULT_USER_AGENT, requestHeaders } from "./limits.js";
+export {
+  DEFAULT_CRAWL_LIMITS,
+  DEFAULT_FETCH_LIMITS,
+  DEFAULT_USER_AGENT,
+  MAX_CRAWL_DEPTH,
+  STORED_HEADERS,
+  pickStoredHeaders,
+  requestHeaders,
+} from "./limits.js";
 export type { CrawlLimits, FetchLimits } from "./limits.js";
 
 export { crawlSite } from "./crawl.js";

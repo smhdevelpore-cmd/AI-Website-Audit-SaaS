@@ -15,5 +15,9 @@
     "build": "tsc -b",
     "typecheck": "tsc -b",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@siteaudit/crawler": "0.0.0",
+    "@siteaudit/shared-types": "0.0.0"
   }
 }

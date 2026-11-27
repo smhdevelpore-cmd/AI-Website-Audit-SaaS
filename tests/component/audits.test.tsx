@@ -279,6 +279,40 @@ describe("audit detail", () => {
     expect(screen.getByRole("button", { name: "Cancel audit" })).toBeTruthy();
   });
 
+  it("shows the score and each category's weight for a finished audit", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        ok(
+          audit({
+            status: "completed",
+            completedAt: "2026-11-27T09:05:00.000Z",
+            pagesScanned: 6,
+            overallScore: 82,
+            categoryScores: [
+              { category: "performance", score: 100, weight: 25 },
+              { category: "seo", score: 76, weight: 25 },
+              { category: "technical", score: 88, weight: 20 },
+              { category: "mobile", score: null, weight: 15 },
+              { category: "accessibility", score: 100, weight: 10 },
+              { category: "security", score: 100, weight: 5 },
+              { category: "links", score: 88, weight: 0 },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
+
+    expect(await screen.findByText("82")).toBeTruthy();
+    expect(screen.getByText(/SEO/)).toBeTruthy();
+    // A category that was not checked says N/A rather than showing a 0.
+    expect(screen.getByText("N/A")).toBeTruthy();
+    // Links carries no weight of its own: its findings are already counted in Technical.
+    expect(screen.queryByText(/Links/)).toBeNull();
+  });
+
   it("shows why a failed audit failed, and does not offer to cancel it", async () => {
     vi.stubGlobal(
       "fetch",

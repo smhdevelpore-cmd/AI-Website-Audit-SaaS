@@ -64,6 +64,33 @@ export const DEFAULT_CRAWL_LIMITS: CrawlLimits = {
   maxLinksPerPage: 500,
 };
 
+/**
+ * Response headers kept on a crawled page.
+ *
+ * Rules need the security headers (FR-10) and nothing else, and a Map of thirty headers per page
+ * is a snapshot nobody reads. Missing headers are legitimately impossible to distinguish from
+ * "not sent", so the list is what a rule may ask about; anything outside it reads as absent.
+ */
+export const STORED_HEADERS = [
+  "strict-transport-security",
+  "content-security-policy",
+  "x-content-type-options",
+  "x-frame-options",
+  "referrer-policy",
+  "permissions-policy",
+  "cache-control",
+  "content-language",
+] as const;
+
+export function pickStoredHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const name of STORED_HEADERS) {
+    const value = headers[name];
+    if (value !== undefined && value !== "") kept[name] = value;
+  }
+  return kept;
+}
+
 /** Sent on every request. An operator must be able to find out who is hitting their site, and why. */
 export const DEFAULT_USER_AGENT = "SiteAuditBot/0.1 (+https://example.com/bot)";
 

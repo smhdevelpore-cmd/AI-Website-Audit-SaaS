@@ -98,6 +98,9 @@ describe("runAuditJob", () => {
       setStage: (id, stage) => data.setStage(id, stage),
       finish: (id, finish) => data.finish(id, finish),
       recordUsage: (record) => data.recordUsage(record),
+      savePages: (id, rows) => data.savePages(id, rows),
+      saveFindings: (id, rows) => data.saveFindings(id, rows),
+      saveScores: (id, scores) => data.saveScores(id, scores),
     };
 
     const result = await runAuditJob({ auditId: AUDIT_ID, attempt: 1 }, deps({ data: refusing }));

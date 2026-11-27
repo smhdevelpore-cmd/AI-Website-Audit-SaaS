@@ -18,7 +18,7 @@ import { isTerminalAuditStatus, type AuditFailureCode, type AuditStage } from "@
 import { UnsafeTargetError, type SafeTarget } from "@siteaudit/validation";
 
 import type { WorkerData } from "./data.js";
-import type { ScanStep, ScanStepResult } from "./pipeline.js";
+import { FatalScanError, type ScanStep, type ScanStepResult } from "./pipeline.js";
 
 export interface RunAuditDeps {
   readonly data: WorkerData;
@@ -163,14 +163,28 @@ async function runOnce(job: AuditJob, deps: RunAuditDeps): Promise<RunAuditResul
     return { outcome: "done", status: "failed" };
   }
 
+  // Fresh per run: a retry must re-crawl, not reuse the pages of the attempt that died.
+  const state = new Map<string, unknown>();
+
   const outcome = await withBudget(async (signal) => {
     for (const step of deps.steps) {
       signal.throwIfAborted();
       await guarded(() => deps.data.setStage(auditId, step.stage));
       let result: ScanStepResult;
       try {
-        result = await step.run({ audit, target, signal });
-      } catch {
+        result = await step.run({ audit, target, signal, state });
+      } catch (error) {
+        if (error instanceof FatalScanError) {
+          // The step judged the target (unreachable, nothing to score). Retrying repeats the
+          // judgement three times and delays the truthful failure.
+          (deps.log ?? (() => undefined))("step reported a fatal scan failure", {
+            auditId,
+            stage: step.stage,
+            code: error.code,
+          });
+          await deps.data.finish(auditId, { status: "failed", code: error.code });
+          return "failed" as const;
+        }
         // A step does I/O (crawl, provider, AI). Those failures are the ones the TRD retries;
         // a deterministic bug will fail the same way three times and then be reported.
         throw new RetryableFailure("internal_error", `step ${step.stage} failed`);

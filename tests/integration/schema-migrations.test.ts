@@ -323,6 +323,52 @@ describe("supabase migrations", () => {
     }
   });
 
+  it("refuses a finished audit without a score, and a score outside 0-100", async () => {
+    const userId = (
+      await database.db.query<{ id: string }>(
+        `insert into auth.users (email) values ('scores@example.com') returning id`,
+      )
+    ).rows[0]?.id as string;
+
+    // A completed audit is a claim that results exist. It must carry the number and the version
+    // of the formula, or the claim is unsupported.
+    await expect(
+      database.db.exec(
+        `insert into public.audits (user_id, url, host, status, completed_at)
+         values ('${userId}','https://s.example','s.example','completed', now())`,
+      ),
+    ).rejects.toThrow(/audits_finished_has_score/);
+
+    await expect(
+      database.db.exec(
+        `insert into public.audits (user_id, url, host, status, completed_at, overall_score, scoring_version)
+         values ('${userId}','https://s.example','s.example','completed', now(), 101, 'rules-v1')`,
+      ),
+    ).rejects.toThrow(/audits_overall_score_range/);
+
+    await expect(
+      database.db.exec(
+        `insert into public.audits (user_id, url, host, status, created_at)
+         values ('${userId}','https://s.example','s.example','cancelled', now())
+         returning id`,
+      ),
+    ).rejects.toThrow();
+
+    // The same row, honest, is accepted.
+    await database.db.exec(
+      `insert into public.audits
+         (user_id, url, host, status, completed_at, overall_score, category_scores, scoring_version)
+       values ('${userId}','https://ok.example','ok.example','completed', now(), 82,
+               '[{"category":"seo","score":76,"weight":25}]'::jsonb, 'rules-v1')`,
+    );
+
+    // A failed audit carries no score: it measured nothing to score.
+    await database.db.exec(
+      `insert into public.audits (user_id, url, host, status, completed_at, error_code)
+       values ('${userId}','https://bad.example','bad.example','failed', now(), 'target_unreachable')`,
+    );
+  });
+
   it("deduplicates findings per audit, issue code and page scope", async () => {
     const userId = (
       await database.db.query<{ id: string }>(

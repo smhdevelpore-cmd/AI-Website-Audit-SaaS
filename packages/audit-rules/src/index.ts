@@ -1,29 +1,32 @@
 /**
- * Rule engine contract (TRD §8). No rules yet: each rule needs fixtures and a reviewed
- * threshold before it can produce a finding a customer acts on.
+ * Deterministic rules and scoring (TRD §8, §9).
+ *
+ * Everything here is a pure function of a crawl: the same pages produce the same findings and the
+ * same score, every time, on any machine. That property is the reason the number in a report can be
+ * explained line by line — and the reason the AI phase is not allowed to touch it.
  */
 
-import type { AuditCategory, Finding } from "@siteaudit/shared-types";
+export type { AuditRule, PageAuditContext, RuleFinding, SiteFacts } from "./types.js";
+export { MAX_EVIDENCE_TEXT, excerpt, findingFor } from "./types.js";
 
-export const RULES_VERSION = 0;
+export { RULES, RULES_VERSION, countBySeverity, runRules } from "./engine.js";
+export type { RuleInput, RuleOutcome } from "./engine.js";
 
-/** Sanitised, bounded view of one fetched page. What a rule is allowed to see. */
-export interface PageAuditContext {
-  url: string;
-  status: number;
-  html?: string;
-  headers: Readonly<Record<string, string>>;
-  timingMs?: number;
-}
+export {
+  CATEGORY_WEIGHTS,
+  MAX_RECURRENCE_FACTOR,
+  RECURRENCE_STEP,
+  SCORING_VERSION,
+  SEVERITY_DEDUCTIONS,
+  scoringCategory,
+  scoreAudit,
+} from "./scoring.js";
+export type { ScoreInput, ScoreResult } from "./scoring.js";
 
-export interface AuditRule {
-  code: string;
-  category: AuditCategory;
-  run(context: PageAuditContext): Finding[];
-}
-
-export const RULES: readonly AuditRule[] = [];
-
-export function ruleCount(): number {
-  return RULES.length;
-}
+export { SEO_RULES, SEO_RULE_CODES } from "./rules/seo.js";
+export { TECHNICAL_RULES, TECHNICAL_RULE_CODES } from "./rules/technical.js";
+export { PERFORMANCE_RULES, PERFORMANCE_RULE_CODES } from "./rules/performance.js";
+export { MOBILE_RULES, MOBILE_RULE_CODES } from "./rules/mobile.js";
+export { ACCESSIBILITY_RULES, ACCESSIBILITY_RULE_CODES } from "./rules/accessibility.js";
+export { SECURITY_RULES, SECURITY_RULE_CODES } from "./rules/security.js";
+export { LINKS_RULES, LINKS_RULE_CODES } from "./rules/links.js";

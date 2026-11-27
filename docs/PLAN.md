@@ -16,10 +16,10 @@ Sliced so each phase ends with something that can be run and judged, and so the 
 | **3 · Interface foundation** | design tokens, Tailwind, shared components, app shell, landing, auth screens, dashboard/history/settings shells, accessibility | responsive, labelled, no dead controls; contrast measured and tested |
 | **4 · Audit submission + jobs** | `POST/GET/GET one/DELETE /audits`, server-side limits, BullMQ queue with idempotent jobs and bounded retries, worker with explicit status/stage transitions, Redis health, New Audit and history UI on TanStack Query | a submitted audit is persisted and queued; the UI shows its real status; a queue or database failure never produces a false success |
 | **5 · Bounded crawler** | HTTP fetch pinned to validated addresses, redirect revalidation, size/time limits; robots.txt, sitemap and link discovery under a page/depth cap; HTML parser and page snapshots | tests: redirect to metadata, redirect loop, oversized body, rebind simulation, robots and sitemap policy, page/depth/concurrency caps, fixture crawl |
-| **6 · Rules + scoring** | HTML parse, rule engine, normalisation, deterministic scoring with weights from PRD FR-13 | fixture pages produce stable findings and a reproducible score |
+| **6 · Rules + scoring** | rule engine over the parsed pages, normalisation and deduplication, deterministic scoring with the FR-13 weights, worker pipeline wired end to end | fixture pages produce stable findings and a reproducible score; a finished audit carries its score and the version that produced it |
 | **7 · AI + PDF** | evidence-only explanations, schema validation, PDF from stored snapshot | AI failure leaves deterministic findings intact; PDF renders from the snapshot alone |
 
-Phases 0–5 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
+Phases 0–6 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
 the end.
 
 ### Phase numbering changed
@@ -48,6 +48,11 @@ in, and writing them separately would have meant two limits objects. It is one p
 `@siteaudit/crawler`, and it is still not wired into the worker: `SCAN_STEPS` is empty, so nothing
 in production fetches a page yet. Phase 6 owns that wiring and the rules that read the results.
 
+Phase 6 arrived as rules and scoring, and it also did the wiring Phase 5 deferred: the worker now
+runs `crawling → rules → scoring` and an audit can complete with a score. The PageSpeed provider
+and the AI explanation are still absent, so `performance` is measured by the crawler (response time,
+document weight) rather than by Lighthouse — labelled as ours everywhere it appears.
+
 ## What exists now
 
 - `apps/api` — Express process: `GET /health` (auth + queue), the error envelope, bearer-token
@@ -60,8 +65,9 @@ in production fetches a page yet. Phase 6 owns that wiring and the rules that re
   Settings writes the profile; everything else shows an empty state because there is no data.
   See [`docs/UI.md`](UI.md).
 - `apps/worker` — BullMQ consumer: claims an audit (`queued → running`), revalidates the target,
-  records usage, then reports `failed/scanner_not_ready` because the scan pipeline has no steps
-  yet — the crawler exists but nothing calls it. Retries are classified (infrastructure only), every write is conditional, and every stored
+  records usage, then crawls, runs the rules and scores the result (`crawling → rules → scoring`).
+  A page it could not read makes the audit `partial`; a site it could not reach fails it without a
+  score. See [`docs/QUEUES.md`](QUEUES.md). Retries are classified (infrastructure only), every write is conditional, and every stored
   message is generated from a code. See [`docs/QUEUES.md`](QUEUES.md).
 - `packages/queue` — the queue contract, the BullMQ adapter and the in-memory queue the tests use.
 - `packages/crawler` — the only code that talks to a third-party site: `safeFetch` (target gate, DNS
@@ -75,7 +81,9 @@ in production fetches a page yet. Phase 6 owns that wiring and the rules that re
 - `packages/config` — one environment schema per process, validated at startup.
 - `packages/shared-types` — domain types and status/stage/category unions, plus metric units,
   sources, report statuses and usage kinds (the lists the database constraints mirror).
-- `packages/audit-rules` — the rule interface and an empty registry.
+- `packages/audit-rules` — the rule catalog (`rules-v1`: 30 rules over seven categories), the
+  engine and the scorer. Every finding is a code plus evidence; the score is a pure function of the
+  findings. See [`docs/RULES.md`](RULES.md).
 - `packages/report-template` — template version and snapshot metadata types.
 - `tests/` — unit, component and integration suites, including the PGlite schema/RLS suites and the
   crawler's local-fixture suites. Nothing in them reaches the public internet.
@@ -102,6 +110,21 @@ in production fetches a page yet. Phase 6 owns that wiring and the rules that re
 6. **Scope creep.** The non-goals list in PRD §4 is the guard. Anything not on it waits.
 7. **Bus factor of one.** Migrations, env docs and the runbook stay in the repo so the project
    survives a handover.
+
+## Decisions made in Phase 6
+
+| Decision | Why |
+|---|---|
+| One rule, one issue code | A code that means two things cannot be deduplicated, filtered or explained. The engine throws if a rule emits a code it does not own |
+| Rules read the parsed page, not raw HTML | The parser lives in the crawler, so "what counts as a title" has one definition; a rule cannot disagree with what was stored |
+| "Evaluated" is recorded separately from "found something" | Without it, a category with no findings would be indistinguishable from a category nobody checked, and N/A would silently become 100 |
+| A category starts at 100 and loses points per distinct issue code, capped at 2× | Explainable in one sentence, and a single template defect cannot zero a whole category |
+| Link findings are charged to Technical | FR-13 weights six categories and not links; reporting broken links yet scoring them 0% would make the number ignore the report. Recorded as a deviation in `docs/RULES.md` §4 |
+| `alt=""` is not a defect | It is the correct way to mark an image as decorative; counting it produced a false positive on the first fixture |
+| Scores live on `audits`, not in `audit_metrics` | `audit_metrics.category` only accepts the seven audit categories, and "overall" is not one; the history screen needs the score with the audit |
+| `audits_finished_has_score` is a database constraint | A `completed` audit with no score is a claim nobody can check. The row cannot be written |
+| The start page failing ends the audit; another page failing makes it `partial` | The site's own answer is not a transient error — retrying it three times only delays the truth |
+| The audit detail shows the score and per-category weights | Once audits can complete, the old copy ("this build has no scanner yet") would have been false. The findings list and filters are still a later phase |
 
 ## Decisions made in Phase 5
 

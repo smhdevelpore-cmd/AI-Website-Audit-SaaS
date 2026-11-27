@@ -31,6 +31,7 @@ export interface SeedAudit {
   readonly maxPages?: number;
   readonly createdAt?: string;
   readonly errorCode?: string | null;
+  readonly overallScore?: number | null;
   readonly clientName?: string | null;
   readonly projectName?: string | null;
 }
@@ -83,6 +84,8 @@ export class InMemoryUserData implements UserData {
       pages_scanned: 0,
       was_partial: false,
       scoring_version: null,
+      overall_score: seed.overallScore ?? null,
+      category_scores: null,
       error_code: seed.errorCode ?? null,
       error_message: seed.errorCode ? publicAuditFailureMessage(seed.errorCode) : null,
       started_at: null,
@@ -127,6 +130,8 @@ export class InMemoryUserData implements UserData {
       pages_scanned: 0,
       was_partial: false,
       scoring_version: null,
+      overall_score: null,
+      category_scores: null,
       error_code: null,
       error_message: null,
       started_at: null,

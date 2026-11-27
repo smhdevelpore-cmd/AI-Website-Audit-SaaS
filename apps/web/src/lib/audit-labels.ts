@@ -75,6 +75,21 @@ export function presentStage(stage: string | null): string | null {
   return STAGES[stage] ?? stage;
 }
 
+const CATEGORIES: Readonly<Record<string, string>> = {
+  performance: "Performance",
+  seo: "SEO",
+  technical: "Technical",
+  mobile: "Mobile",
+  accessibility: "Accessibility",
+  security: "Security",
+  links: "Links",
+};
+
+/** A category's name as a report writes it; an unknown one is shown raw rather than hidden. */
+export function presentCategory(category: string): string {
+  return CATEGORIES[category] ?? category;
+}
+
 /** The sentence shown under a failed audit, when the API did not supply one. */
 export function presentFailure(code: string): string {
   switch (code) {
