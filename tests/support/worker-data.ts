@@ -12,6 +12,8 @@ import { publicAuditFailureMessage, type AuditStage, type UsageKind } from "@sit
 
 import type { AuditFinish, WorkerAudit, WorkerData } from "../../apps/worker/src/data.js";
 import type { NewFindingRow } from "../../apps/worker/src/finding-rows.js";
+import type { ExplanationRows } from "../../apps/worker/src/data.js";
+import type { AIRecommendationOutput } from "@siteaudit/validation";
 import type { InMemoryUserData } from "./audit-store.js";
 
 export interface RecordedUsage {
@@ -30,6 +32,10 @@ export class InMemoryWorkerData implements WorkerData {
   readonly pages = new Map<string, AuditPageRow[]>();
   readonly findings = new Map<string, NewFindingRow[]>();
   readonly scores = new Map<string, ScoreResult>();
+  /** What the AI step wrote, per audit. Absent means the step produced nothing for it. */
+  readonly explanations = new Map<string, ExplanationRows>();
+  readonly aiUnavailable: string[] = [];
+  readonly findingExplanations = new Map<string, AIRecommendationOutput>();
 
   /** Set to make the next `loadAudit` (and only that call) throw, to simulate a DB blip. */
   failNextLoad = false;
@@ -121,6 +127,9 @@ export class InMemoryWorkerData implements WorkerData {
     for (const row of rows) byUrl.set(row.url, row);
     this.pages.set(auditId, [...byUrl.values()]);
 
+    // The API reads pages through the same store, so a report built after a scan sees them.
+    for (const row of rows) this.store.seedPage(auditId, row.url, row.fetch_error);
+
     const ids = new Map<string, string>();
     for (const row of rows) ids.set(row.url, `page:${row.url}`);
     return ids;
@@ -128,6 +137,56 @@ export class InMemoryWorkerData implements WorkerData {
 
   async saveFindings(auditId: string, rows: readonly NewFindingRow[]): Promise<void> {
     this.findings.set(auditId, [...rows]);
+    // Mirrors the insert: the API's `listFindings` reads these same rows, so a report rendered
+    // after a scan is built from what the scan wrote, not from a second copy.
+    for (const row of rows) {
+      this.store.seedFinding(auditId, {
+        pageUrl: row.page_id === null ? null : row.page_id.replace(/^page:/, ""),
+        issueCode: row.issue_code,
+        category: row.category,
+        severity: row.severity,
+        title: row.title,
+        description: row.description,
+        evidence: row.evidence,
+        recommendation: row.recommendation,
+      });
+    }
+  }
+
+  async saveExplanations(auditId: string, explanations: ExplanationRows): Promise<void> {
+    // What the SQL does in one call: the audit's status, model and summary, and one explanation
+    // per finding, keyed by issue code.
+    const row = this.store.audits.get(auditId);
+    if (row !== undefined) {
+      this.store.audits.set(auditId, {
+        ...row,
+        ai_status: "ok",
+        ai_model: explanations.model,
+        ai_summary: explanations.summary,
+      });
+      const findings = this.store.findings.get(auditId) ?? [];
+      this.store.findings.set(
+        auditId,
+        findings.map((finding) => {
+          const explanation = explanations.recommendations.get(finding.issue_code);
+          return explanation === undefined ? finding : { ...finding, ai_explanation: explanation };
+        }),
+      );
+    }
+
+    this.explanations.set(auditId, explanations);
+    for (const [issueCode, recommendation] of explanations.recommendations) {
+      this.findingExplanations.set(`${auditId}|${issueCode}`, recommendation);
+    }
+  }
+
+  async markAiUnavailable(auditId: string): Promise<void> {
+    this.aiUnavailable.push(auditId);
+    this.explanations.delete(auditId);
+    const row = this.store.audits.get(auditId);
+    if (row !== undefined) {
+      this.store.audits.set(auditId, { ...row, ai_status: "unavailable", ai_summary: null });
+    }
   }
 
   async saveScores(auditId: string, scores: ScoreResult): Promise<void> {

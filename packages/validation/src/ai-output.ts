@@ -31,5 +31,18 @@ export const auditSummarySchema = z
   })
   .strict();
 
+/**
+ * The whole response the explanation step asks for: one summary and at most one recommendation
+ * per finding. Strict, so a provider that adds a field we did not ask for fails here rather than
+ * in a report.
+ */
+export const aiExplanationResponseSchema = z
+  .object({
+    summary: auditSummarySchema,
+    recommendations: z.array(aiRecommendationSchema).max(50),
+  })
+  .strict();
+
 export type AIRecommendationOutput = z.infer<typeof aiRecommendationSchema>;
 export type AuditSummaryOutput = z.infer<typeof auditSummarySchema>;
+export type AIExplanationResponse = z.infer<typeof aiExplanationResponseSchema>;

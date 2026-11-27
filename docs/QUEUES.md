@@ -128,9 +128,9 @@ Verified in this environment: with `REDIS_URL` pointing at a closed port, `/heal
 
 ## 8. What the worker does today
 
-Three steps, in the TRD's order (`apps/worker/src/scan-steps.ts`):
+Five steps, in the TRD's order (`apps/worker/src/scan-steps.ts`):
 
-`queued → running (validating) → crawling → rules → scoring → completed | partial`
+`queued → running (validating) → crawling → rules → scoring → ai → persisting → completed | partial`
 
 - **crawling** — a bounded crawl of the audit's URL (robots.txt, sitemap, links, page and depth
   caps), storing each page as an `audit_pages` row. If the start page cannot be read the audit
@@ -138,15 +138,24 @@ Three steps, in the TRD's order (`apps/worker/src/scan-steps.ts`):
   retrying it three times would only delay the truth.
 - **rules** — the deterministic rules (`@siteaudit/audit-rules`) over the crawl. Findings are
   written per audit and per page; see [`RULES.md`](RULES.md).
-- **scoring** — the weighted score, stored with `scoring_version` before the audit finishes, so a
-  `completed` row can never exist without the number and the formula that produced them.
+- **scoring** — the weighted score, stored with `scoring_version`, so a `completed` row can never
+  exist without the number and the formula that produced them. Scoring is no longer terminal: the
+  steps after it must not be able to decide the outcome.
+- **ai** — the explanation step (`@siteaudit/ai-explain`). Optional at boot: with no
+  `LLM_API_KEY`/`LLM_MODEL` it returns immediately and `ai_status` stays `skipped`. On success the
+  summary and one explanation per finding are stored beside the result; on failure `ai_status`
+  becomes `unavailable` and **nothing else changes** — findings and score are already written and
+  the audit still completes. See [`AI-EXPLAIN.md`](AI-EXPLAIN.md).
+- **persisting** — decides `completed` or `partial` and records `pages_scanned`. It is the step that
+  finishes an audit, which is what keeps a slow provider from being a correctness problem.
 
 A page that failed to fetch (a timeout, a PDF served at a page URL) makes the audit **partial**:
 the results cover what was read. A site that answered nothing is **failed**. Neither case invents
 a result, and a failed audit carries no score at all.
 
-Not yet in the pipeline: the PageSpeed provider and the AI explanation (Phase 7). Their stages
-already exist in the schema, so they slot in between `rules` and `scoring` without a migration.
+Not yet in the pipeline: the PageSpeed provider (Phase 8). Its stage (`performance`) already exists
+in the schema, so it slots in between `rules` and `scoring` without a migration, and its metrics have
+their own status rather than borrowing the score's.
 
 ## 9. Running it
 

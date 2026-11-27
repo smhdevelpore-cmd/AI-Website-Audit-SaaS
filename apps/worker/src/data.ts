@@ -15,6 +15,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import type { AuditPageRow } from "@siteaudit/crawler";
 import type { ScoreResult } from "@siteaudit/audit-rules";
+import type { AIRecommendationOutput, AuditSummaryOutput } from "@siteaudit/validation";
 import type { NewFindingRow } from "./finding-rows.js";
 
 import {
@@ -72,6 +73,22 @@ export interface WorkerData {
   saveFindings(auditId: string, rows: readonly NewFindingRow[]): Promise<void>;
   /** Stores the score and the version of the formula that produced it, before the audit finishes. */
   saveScores(auditId: string, scores: ScoreResult): Promise<void>;
+  /**
+   * Stores the AI summary, the model that wrote it and one explanation per issue code.
+   *
+   * Only `ai_summary`, `ai_status` and `audit_findings.ai_explanation` are written: an explanation
+   * step cannot change a severity, a category, an evidence string or a score, because it has no
+   * code path to those columns.
+   */
+  saveExplanations(auditId: string, explanations: ExplanationRows): Promise<void>;
+  /** Records that AI produced nothing, and why, without touching the deterministic results. */
+  markAiUnavailable(auditId: string): Promise<void>;
+}
+
+export interface ExplanationRows {
+  readonly model: string;
+  readonly summary: AuditSummaryOutput;
+  readonly recommendations: ReadonlyMap<string, AIRecommendationOutput>;
 }
 
 const AUDIT_COLUMNS = "id,user_id,url,host,status,stage,max_pages,started_at";
@@ -204,6 +221,38 @@ export function createSupabaseWorkerData(options: SupabaseWorkerDataOptions): Wo
         .eq("id", auditId)
         .in("status", ["running", "queued"]);
       if (error) failed("audits.saveScores", error);
+    },
+
+    async saveExplanations(auditId, explanations) {
+      const { error } = await client
+        .from("audits")
+        .update({
+          ai_status: "ok",
+          ai_summary: explanations.summary,
+          ai_model: explanations.model,
+        })
+        .eq("id", auditId)
+        .in("status", ["running", "queued"]);
+      if (error) failed("audits.saveExplanations", error);
+
+      // One statement per finding that got an explanation. Bounded by the prompt's finding cap.
+      for (const [issueCode, recommendation] of explanations.recommendations) {
+        const { error: findError } = await client
+          .from("audit_findings")
+          .update({ ai_explanation: recommendation })
+          .eq("audit_id", auditId)
+          .eq("issue_code", issueCode);
+        if (findError) failed("audit_findings.ai_explanation", findError);
+      }
+    },
+
+    async markAiUnavailable(auditId) {
+      const { error } = await client
+        .from("audits")
+        .update({ ai_status: "unavailable", ai_summary: null })
+        .eq("id", auditId)
+        .in("status", ["running", "queued"]);
+      if (error) failed("audits.markAiUnavailable", error);
     },
 
     async recordUsage({ userId, auditId, kind, quantity }) {

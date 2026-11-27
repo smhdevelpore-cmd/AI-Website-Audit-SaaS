@@ -5,10 +5,12 @@
  * while unable to do its job is a green light nobody should trust.
  *
  * What it does with a job: validates the target, crawls a bounded set of pages, runs the
- * deterministic rules, scores the result and stores all three. A page it could not read makes the
- * audit `partial`; a site it could not reach fails it, in words, without inventing a score.
+ * deterministic rules, scores the result, asks a model to explain it and stores all of it. A page
+ * it could not read makes the audit `partial`; a site it could not reach fails it, in words,
+ * without inventing a score; an explanation that cannot be produced is recorded as absent.
  */
 
+import { createHttpAiProvider } from "@siteaudit/ai-explain";
 import { AUDIT_JOB_ATTEMPTS, createBullMqAuditWorker } from "@siteaudit/queue";
 import { assertSafeTarget } from "@siteaudit/validation";
 
@@ -40,7 +42,21 @@ const data = createSupabaseWorkerData({
   serviceRoleKey: config.SUPABASE_SERVICE_ROLE_KEY,
 });
 
-const steps = createScanSteps({ data });
+// Explanations are optional: without a key the audit still crawls, scores and stores its findings,
+// and `ai_status` stays `skipped`. Nothing is faked to fill the gap.
+const ai =
+  config.LLM_API_KEY === undefined || config.LLM_MODEL === undefined
+    ? undefined
+    : {
+        provider: createHttpAiProvider({
+          apiKey: config.LLM_API_KEY,
+          model: config.LLM_MODEL,
+          ...(config.LLM_ENDPOINT === undefined ? {} : { endpoint: config.LLM_ENDPOINT }),
+        }),
+        model: config.LLM_MODEL,
+      };
+
+const steps = createScanSteps({ data, ...(ai === undefined ? {} : { ai }) });
 
 const process_ = createProcessor({
   data,
@@ -64,7 +80,14 @@ const worker = createBullMqAuditWorker({
   },
 });
 
-worker.on("ready", () => log("ready", { concurrency: config.AUDIT_CONCURRENCY, steps: steps.length }));
+worker.on("ready", () =>
+  log("ready", {
+    concurrency: config.AUDIT_CONCURRENCY,
+    steps: steps.length,
+    // Says whether explanations are configured, never which model or which key.
+    ai: ai === undefined ? "absent" : "configured",
+  }),
+);
 worker.on("error", (error) => log("worker error", { error: error.message }));
 
 async function shutdown(signal: string): Promise<void> {

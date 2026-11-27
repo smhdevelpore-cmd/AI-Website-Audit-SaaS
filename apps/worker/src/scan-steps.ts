@@ -1,19 +1,21 @@
 /**
- * The steps a real audit runs: crawl → rules → score (TRD §6).
+ * The steps a real audit runs: crawl → rules → score → explain → persist (TRD §6).
  *
- * The order is the TRD's, minus the modules that do not exist yet: the PageSpeed provider
- * (Phase 7) and the AI explanation (Phase 7) slot in after `rules` and before `scoring`, which is
- * why scoring reads the *rules outcome* rather than re-running anything.
+ * The order matters in two places:
  *
- * The state hand-off deserves a note. `crawling` produces a `CrawlSummary` that `rules` needs whole
- * — every page's parsed data, not only the row shape. It travels in `context.state`, which the
- * runner creates per job: nothing is written to the database and read back, and nothing outlives
- * the run. A retry starts from an empty map and a fresh crawl, which is the only correct starting
- * point for a scan.
+ *  - **Scoring before explaining.** The summary the model writes may mention the score, and the
+ *    score must exist before anything can describe it. Scoring no longer finishes the audit, so
+ *    the AI step cannot be mistaken for the part that decides the outcome.
+ *  - **Explaining before persisting.** A provider that is slow or down delays the audit, never
+ *    changes it: `explain` records what it got and the audit finishes either way.
+ *
+ * The PageSpeed provider (Phase 8) slots in between `rules` and `scoring`, which is why scoring
+ * reads the rules outcome rather than re-running anything.
  */
 
 import { crawlSite, toPageRows, type CrawlOptions, type CrawlSummary } from "@siteaudit/crawler";
-import { runRules, scoreAudit, type RuleOutcome } from "@siteaudit/audit-rules";
+import { runRules, scoreAudit, type RuleOutcome, type ScoreResult } from "@siteaudit/audit-rules";
+import { explainAudit, type AiProvider, type ExplanationFinding } from "@siteaudit/ai-explain";
 
 import type { WorkerData } from "./data.js";
 import { toFindingRows } from "./finding-rows.js";
@@ -21,7 +23,14 @@ import { FatalScanError, type ScanContext, type ScanStep } from "./pipeline.js";
 
 const CRAWL_KEY = "crawl";
 const RULES_KEY = "rules";
+const SCORES_KEY = "scores";
 const PAGE_IDS_KEY = "pageIds";
+
+export interface AiStepOptions {
+  readonly provider: AiProvider;
+  readonly model: string;
+  readonly timeoutMs?: number;
+}
 
 export interface ScanStepsDeps {
   readonly data: WorkerData;
@@ -30,6 +39,11 @@ export interface ScanStepsDeps {
    * an audit at a local fixture server without loosening the shipped address policy.
    */
   readonly crawl?: (options: CrawlOptions) => Promise<CrawlSummary>;
+  /**
+   * Absent when no `LLM_API_KEY` is configured. The `ai` step then leaves the audit's
+   * `ai_status` at its default `skipped` and the report says there are no explanations.
+   */
+  readonly ai?: AiStepOptions;
 }
 
 function requireState<T>(context: ScanContext, key: string): T {
@@ -39,6 +53,16 @@ function requireState<T>(context: ScanContext, key: string): T {
     throw new FatalScanError("internal_error", `run state is missing ${key}`);
   }
   return value as T;
+}
+
+/** The path of a page, because the model has no use for a query string and no right to it. */
+function pagePath(url: string | null): string | null {
+  if (url === null) return null;
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return null;
+  }
 }
 
 export function createScanSteps(deps: ScanStepsDeps): readonly ScanStep[] {
@@ -113,7 +137,6 @@ export function createScanSteps(deps: ScanStepsDeps): readonly ScanStep[] {
     stage: "scoring",
     async run(context: ScanContext) {
       const outcome = requireState<RuleOutcome>(context, RULES_KEY);
-      const summary = requireState<CrawlSummary>(context, CRAWL_KEY);
 
       const scores = scoreAudit({ findings: outcome.findings, evaluated: outcome.evaluated });
       if (scores.overall === null) {
@@ -122,7 +145,80 @@ export function createScanSteps(deps: ScanStepsDeps): readonly ScanStep[] {
       }
 
       await deps.data.saveScores(context.audit.id, scores);
+      context.state.set(SCORES_KEY, scores);
+      return "continue";
+    },
+  };
 
+  const ai: ScanStep = {
+    stage: "ai",
+    async run(context: ScanContext) {
+      const options = deps.ai;
+      if (options === undefined) {
+        // No key configured: nothing is claimed, and `ai_status` stays `skipped`.
+        return "continue";
+      }
+
+      const outcome = requireState<RuleOutcome>(context, RULES_KEY);
+      const scores = requireState<ScoreResult>(context, SCORES_KEY);
+      const summary = requireState<CrawlSummary>(context, CRAWL_KEY);
+
+      const findings: ExplanationFinding[] = outcome.findings.map((finding) => ({
+        issueCode: finding.issueCode,
+        category: finding.category,
+        severity: finding.severity,
+        title: finding.title,
+        evidence: finding.evidence,
+        pagePath: pagePath(finding.pageUrl),
+      }));
+
+      const result = await explainAudit(
+        {
+          host: context.audit.host,
+          overallScore: scores.overall,
+          categoryScores: scores.categories,
+          findings,
+          pagesScanned: summary.pages.filter((page) => page.parsed !== null).length,
+          pagesUnreadable: summary.pages.filter((page) => page.parsed === null).length,
+        },
+        {
+          provider: options.provider,
+          model: options.model,
+          ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        },
+      );
+
+      if (result.status !== "ok") {
+        // The audit is unaffected: findings and score are already written. A report will say the
+        // explanations are unavailable rather than leaving a blank section that implies none.
+        await deps.data.markAiUnavailable(context.audit.id);
+        context.state.set("aiFailure", result.reason);
+        return "continue";
+      }
+
+      await deps.data.saveExplanations(context.audit.id, {
+        model: result.model,
+        summary: result.summary,
+        recommendations: result.recommendations,
+      });
+
+      await deps.data
+        .recordUsage({
+          userId: context.audit.user_id,
+          auditId: context.audit.id,
+          kind: "ai_token",
+          quantity: result.usage.inputTokens + result.usage.outputTokens,
+        })
+        .catch(() => undefined);
+
+      return "continue";
+    },
+  };
+
+  const persisting: ScanStep = {
+    stage: "persisting",
+    async run(context: ScanContext) {
+      const summary = requireState<CrawlSummary>(context, CRAWL_KEY);
       const pagesScanned = summary.pages.filter((page) => page.parsed !== null).length;
       const somePagesFailed = summary.pages.some((page) => page.error !== null);
       return {
@@ -133,5 +229,5 @@ export function createScanSteps(deps: ScanStepsDeps): readonly ScanStep[] {
     },
   };
 
-  return [crawling, rules, scoring];
+  return [crawling, rules, scoring, ai, persisting];
 }

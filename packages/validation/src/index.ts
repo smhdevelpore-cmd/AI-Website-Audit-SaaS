@@ -55,8 +55,8 @@ export {
 } from "./pagination.js";
 export type { FindingsQuery, ListAuditsQuery, PaginationMeta, PaginationQuery } from "./pagination.js";
 
-export { aiRecommendationSchema, auditSummarySchema } from "./ai-output.js";
-export type { AIRecommendationOutput, AuditSummaryOutput } from "./ai-output.js";
+export { aiExplanationResponseSchema, aiRecommendationSchema, auditSummarySchema } from "./ai-output.js";
+export type { AIExplanationResponse, AIRecommendationOutput, AuditSummaryOutput } from "./ai-output.js";
 
 export {
   AGENCY_NAME_MAX_LENGTH,

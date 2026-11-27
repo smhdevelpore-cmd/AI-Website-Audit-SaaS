@@ -7,7 +7,18 @@
  * separates tenants.
  */
 
-import { AUDIT_CATEGORIES, publicAuditFailureMessage, type CategoryScore } from "@siteaudit/shared-types";
+import {
+  AUDIT_CATEGORIES,
+  SEVERITIES,
+  publicAuditFailureMessage,
+  type CategoryScore,
+} from "@siteaudit/shared-types";
+import {
+  aiRecommendationSchema,
+  auditSummarySchema,
+  type AIRecommendationOutput,
+  type AuditSummaryOutput,
+} from "@siteaudit/validation";
 
 export interface ProfileRow {
   id: string;
@@ -41,6 +52,10 @@ export interface AuditRow {
   category_scores: CategoryScore[] | null;
   error_code: string | null;
   error_message: string | null;
+  /** `ok` = explanations produced; `unavailable` = the provider failed; `skipped` = no key. */
+  ai_status: string;
+  ai_model: string | null;
+  ai_summary: AuditSummaryOutput | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -67,6 +82,35 @@ export interface AuditListResult {
   readonly rows: readonly AuditRow[];
   /** Total matching rows, so the client can paginate without guessing. */
   readonly total: number;
+}
+
+/**
+ * One stored finding, joined to the page it belongs to.
+ *
+ * `page` is the embedded `audit_pages(url)` selection: null for a site-wide finding, and also
+ * null if the page row is gone (the column is `on delete cascade`, so in practice never).
+ */
+export interface FindingRow {
+  id: string;
+  audit_id: string;
+  page_id: string | null;
+  issue_code: string;
+  category: string;
+  severity: string;
+  title: string;
+  description: string;
+  evidence: string;
+  recommendation: string | null;
+  source: string;
+  status: string;
+  ai_explanation: AIRecommendationOutput | null;
+  page: { url: string } | null;
+}
+
+/** The two columns a report needs from `audit_pages`: what was asked for, and what failed. */
+export interface PageRowSummary {
+  url: string;
+  fetch_error: string | null;
 }
 
 /**
@@ -98,6 +142,16 @@ export interface UserData {
 
   /** True when a row was removed. RLS means only the caller's rows can be. */
   deleteAudit(auditId: string): Promise<boolean>;
+
+  /**
+   * Every finding for one audit, most severe first, with the URL of the page it belongs to.
+   * RLS scopes `audit_findings` through the parent audit, so a caller cannot read another
+   * tenant's findings even by guessing an audit id.
+   */
+  listFindings(auditId: string): Promise<readonly FindingRow[]>;
+
+  /** Page URLs and their fetch error, for the "N of M pages could not be read" limitation. */
+  listPageSummaries(auditId: string): Promise<readonly PageRowSummary[]>;
 }
 
 /** Builds a client for one request, authorised by that request's access token. */
@@ -134,10 +188,34 @@ export interface AuditView {
    * database error, and this field is rendered in a browser.
    */
   error: { code: string; message: string } | null;
+  /**
+   * Whether this audit has AI-written explanations, and why not when it does not. The UI shows
+   * this rather than guessing from an empty list, which would read as "nothing was found".
+   */
+  ai: {
+    status: "ok" | "unavailable" | "skipped";
+    model: string | null;
+    summary: AuditSummaryOutput | null;
+  };
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
   completedAt: string | null;
+}
+
+export interface FindingView {
+  id: string;
+  issueCode: string;
+  category: string;
+  severity: string;
+  title: string;
+  description: string;
+  evidence: string;
+  recommendation: string | null;
+  /** Null for a site-wide finding. */
+  pageUrl: string | null;
+  /** Present only when the audit's AI step produced one for this finding. */
+  aiExplanation: AIRecommendationOutput | null;
 }
 
 export function toProfileView(row: ProfileRow): ProfileView {
@@ -170,6 +248,51 @@ function scoreCategories(value: CategoryScore[] | null): CategoryScore[] | null 
   return cleaned.length === 0 ? null : cleaned;
 }
 
+/**
+ * `ai_status` is constrained by the database, but a value this build does not know (an older
+ * row, a newer migration) must not become a claim. Anything unrecognised reads as `skipped`.
+ */
+function aiStatus(value: string): "ok" | "unavailable" | "skipped" {
+  return value === "ok" || value === "unavailable" ? value : "skipped";
+}
+
+/** A stored summary is re-validated on the way out, exactly as a score is. */
+function auditSummary(value: unknown): AuditSummaryOutput | null {
+  const parsed = auditSummarySchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+/** The same for one finding's explanation: a malformed block is dropped, not rendered. */
+function explanation(value: unknown): AIRecommendationOutput | null {
+  if (value === null || value === undefined) return null;
+  const parsed = aiRecommendationSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+export function toFindingView(row: FindingRow): FindingView {
+  return {
+    id: row.id,
+    issueCode: row.issue_code,
+    category: row.category,
+    severity: row.severity,
+    title: row.title,
+    description: row.description,
+    evidence: row.evidence,
+    recommendation: row.recommendation,
+    pageUrl: row.page?.url ?? null,
+    aiExplanation: explanation(row.ai_explanation),
+  };
+}
+
+/** Severity order for a list a person reads: worst first, then stable by issue code. */
+export function bySeverity(a: FindingRow, b: FindingRow): number {
+  const rank = (value: string): number => {
+    const index = SEVERITIES.indexOf(value as (typeof SEVERITIES)[number]);
+    return index === -1 ? SEVERITIES.length : index;
+  };
+  return rank(a.severity) - rank(b.severity) || a.issue_code.localeCompare(b.issue_code);
+}
+
 export function toAuditView(row: AuditRow): AuditView {
   const code = row.error_code ?? (row.error_message === null ? null : "internal_error");
   return {
@@ -185,6 +308,11 @@ export function toAuditView(row: AuditRow): AuditView {
     partial: row.was_partial,
     overallScore: row.overall_score,
     categoryScores: scoreCategories(row.category_scores),
+    ai: {
+      status: aiStatus(row.ai_status),
+      model: row.ai_model,
+      summary: row.ai_summary === null ? null : auditSummary(row.ai_summary),
+    },
     error: code === null ? null : { code, message: publicAuditFailureMessage(code) },
     createdAt: row.created_at,
     updatedAt: row.updated_at,

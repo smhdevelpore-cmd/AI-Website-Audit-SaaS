@@ -10,11 +10,16 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { isTerminalAuditStatus, type AuditStatus, type CategoryScore } from "@siteaudit/shared-types";
+import {
+  isTerminalAuditStatus,
+  type AuditStatus,
+  type CategoryScore,
+  type Severity,
+} from "@siteaudit/shared-types";
 
 import { useAuth } from "../auth/AuthProvider.js";
 import { config } from "../config.js";
-import { apiRequest } from "./api.js";
+import { ApiError, apiRequest } from "./api.js";
 
 export interface AuditFailure {
   code: string;
@@ -36,11 +41,63 @@ export interface Audit {
   overallScore: number | null;
   /** Per-category score and weight; `score: null` is "not checked", never zero. */
   categoryScores: readonly CategoryScore[] | null;
+  ai: AuditAi;
   error: AuditFailure | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
   completedAt: string | null;
+}
+
+export type AiStatus = "ok" | "unavailable" | "skipped";
+
+export interface AiExplanation {
+  issueCode: string;
+  plainExplanation: string;
+  businessImpact: string;
+  recommendedFix: string[];
+  difficulty: string;
+  priority: string;
+}
+
+export interface AuditSummary {
+  overview: string;
+  topPriorities: string[];
+  limitations: string[];
+}
+
+/**
+ * Whether an audit has AI-written explanations, and why not when it does not. An empty list of
+ * explanations means "no explanation", never "no problems": that distinction is the status.
+ */
+export interface AuditAi {
+  status: AiStatus;
+  model: string | null;
+  summary: AuditSummary | null;
+}
+
+export interface Finding {
+  id: string;
+  issueCode: string;
+  category: string;
+  severity: Severity;
+  title: string;
+  description: string;
+  evidence: string;
+  recommendation: string | null;
+  pageUrl: string | null;
+  aiExplanation: AiExplanation | null;
+}
+
+export interface FindingsMeta {
+  total: number;
+  counts: Record<Severity, number>;
+  ai: { status: AiStatus; model: string | null };
+}
+
+export interface FindingsResult {
+  findings: Finding[];
+  meta: FindingsMeta;
 }
 
 export interface AuditListMeta {
@@ -119,6 +176,53 @@ export async function cancelAudit(accessToken: string, auditId: string): Promise
   });
 }
 
+/**
+ * Findings for one audit. The server orders them worst first; this function does not re-order,
+ * because a list that disagrees with the report is a list someone will argue with.
+ */
+export async function fetchFindings(accessToken: string, auditId: string): Promise<FindingsResult> {
+  const result = await apiRequest<Finding[]>(config.VITE_API_BASE_URL, `/audits/${auditId}/findings`, {
+    accessToken,
+  });
+  const findings = Array.isArray(result.data) ? result.data : [];
+  const meta = (result.meta ?? {}) as Partial<FindingsMeta>;
+
+  return {
+    findings,
+    meta: {
+      total: typeof meta.total === "number" ? meta.total : findings.length,
+      counts: meta.counts ?? { critical: 0, high: 0, medium: 0, low: 0 },
+      ai: meta.ai ?? { status: "skipped", model: null },
+    },
+  };
+}
+
+/**
+ * The PDF, fetched with the caller's token and handed to the browser as a download.
+ *
+ * A plain link cannot be used: the report endpoint requires an `Authorization` header, and a
+ * signed URL that could go in a link would be a report anyone holding the URL could read.
+ */
+export async function downloadReport(accessToken: string, audit: Audit): Promise<void> {
+  const response = await fetch(`${config.VITE_API_BASE_URL}/audits/${audit.id}/report.pdf`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new ApiError("report_not_ready", "The report could not be produced. Try again in a moment.");
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `audit-${audit.host}-${(audit.completedAt ?? "").slice(0, 10)}.pdf`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Freed once the browser has had its chance to start the download.
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
 const listKey = (query: AuditQuery) => ["audits", "list", query] as const;
 const detailKey = (auditId: string) => ["audits", "detail", auditId] as const;
 
@@ -146,6 +250,16 @@ export function useAudit(auditId: string) {
       if (audit === undefined) return false;
       return isTerminalAuditStatus(audit.status) ? false : POLL_INTERVAL_MS;
     },
+  });
+}
+
+/** Findings are only worth asking for once the audit has stopped changing. */
+export function useFindings(auditId: string, enabled: boolean) {
+  const { accessToken } = useAuth();
+  return useQuery({
+    queryKey: ["audits", "findings", auditId, accessToken],
+    queryFn: () => fetchFindings(accessToken ?? "", auditId),
+    enabled: enabled && accessToken !== null && auditId !== "",
   });
 }
 

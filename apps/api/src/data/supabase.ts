@@ -17,6 +17,8 @@ import { AppError } from "@siteaudit/shared-types";
 
 import type {
   AuditListQuery,
+  FindingRow,
+  PageRowSummary,
   AuditListResult,
   AuditRow,
   NewAuditRow,
@@ -30,7 +32,15 @@ const PROFILE_COLUMNS = "id,name,agency_name,website,timezone,logo_url,created_a
 const AUDIT_COLUMNS =
   "id,user_id,url,host,client_name,project_name,status,stage,max_pages,pages_scanned," +
   "was_partial,scoring_version,overall_score,category_scores,error_code,error_message," +
-  "started_at,completed_at,created_at,updated_at";
+  "ai_status,ai_model,ai_summary,started_at,completed_at,created_at,updated_at";
+
+/**
+ * Findings with their page, flattened by the embed. `audit_pages(url)` is a to-one relation
+ * (many findings, one page), so PostgREST returns an object rather than an array.
+ */
+const FINDING_COLUMNS =
+  "id,audit_id,page_id,issue_code,category,severity,title,description,evidence,recommendation," +
+  "source,status,ai_explanation,page:audit_pages(url)";
 
 const ACTIVE_STATUSES = ["queued", "running"] as const;
 
@@ -180,6 +190,32 @@ export function createSupabaseUserDataFactory(options: SupabaseUserDataOptions):
           .maybeSingle<AuditRow>();
         if (error) failed("audits.findActive", error);
         return data ?? null;
+      },
+
+      async listFindings(auditId: string) {
+        // Ordered by the columns that are stable; the severity order a person reads is applied
+        // in the route, because `order=severity` sorts the words alphabetically.
+        const { data, error } = await client
+          .from("audit_findings")
+          .select(FINDING_COLUMNS)
+          .eq("audit_id", auditId)
+          .order("issue_code", { ascending: true })
+          .order("id", { ascending: true })
+          .returns<FindingRow[]>();
+        if (error) failed("audit_findings.select", error);
+        return data ?? [];
+      },
+
+      async listPageSummaries(auditId: string) {
+        const { data, error } = await client
+          .from("audit_pages")
+          .select("url,fetch_error")
+          .eq("audit_id", auditId)
+          .order("depth", { ascending: true })
+          .order("url", { ascending: true })
+          .returns<PageRowSummary[]>();
+        if (error) failed("audit_pages.select", error);
+        return data ?? [];
       },
 
       async deleteAudit(auditId: string) {

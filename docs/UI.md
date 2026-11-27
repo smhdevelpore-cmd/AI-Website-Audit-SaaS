@@ -74,7 +74,7 @@ and `Design.md` allows "or similar". The stack is set once in `--font-sans`.
 | `/login`, `/register`, `/forgot-password`, `/reset-password` | wired to the Phase 2 auth operations |
 | `/dashboard` | profile + five most recent audits; empty state offers "Run your first audit" |
 | `/audits` | real list: search, status filter, pagination, per-row status/stage, cancel for queued rows |
-| `/audits/:id` | one audit: status, stage, timestamps, failure reason; polls every 2 s while live, then stops |
+| `/audits/:id` | one audit: status, stage, timestamps, failure reason, the score with each category's weight, the findings worst-first with their evidence, an AI explanation under its own label where one exists, and a download button for the PDF. Polls every 2 s while live, then stops |
 | `/settings` | real profile form: `PATCH /profile`, loading, retry, per-field errors, success |
 | `/dev/ui` | component gallery, **development builds only**, every row labelled a fixture |
 | anything else | 404 with a way back |
@@ -89,12 +89,16 @@ page imported it and Vite externalised those modules, which would have broken th
 Design.md §3 says not to show unfinished sections, and §11 forbids dead controls. Both point the
 same way:
 
-- **No dashboard metric cards, no score gauge, no findings list.** They need a scan to produce
-  them; the overview shows recent audits and lets the empty state speak.
+- **No dashboard metric cards and no score gauge.** A gauge is a chart of one number; the audit
+  page prints the score and its weights as text. The overview shows recent audits and lets the
+  empty state speak.
+- **No findings filters or grouping controls on the audit page.** The list is already ordered worst
+  first and grouped by severity; filtering a list a client reads once is a control to maintain for
+  no one. It arrives with the results screens in a later phase.
 - **No usage counters in settings.** The daily limit is enforced server-side and surfaces as a
   429 with its own sentence, which is where it belongs.
-- **No "re-audit" button.** It creates a second audit; PRD FR-16 puts it with results, and results
-  do not exist yet.
+- **No "re-audit" button.** It creates a second audit; PRD FR-16 puts it with comparison, which
+  does not exist yet.
 - **No search or filters when the list is empty.** A filter over nothing is noise, so the controls
   only render once there is something to filter.
 

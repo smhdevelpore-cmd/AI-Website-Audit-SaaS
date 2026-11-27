@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@siteaudit/config": "0.0.0",
+    "@siteaudit/report-template": "^0.0.0",
     "@siteaudit/shared-types": "0.0.0",
     "@siteaudit/validation": "0.0.0",
     "@supabase/supabase-js": "^2.119.2",

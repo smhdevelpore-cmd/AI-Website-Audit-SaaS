@@ -6,11 +6,23 @@
  * reason in a sentence rather than an empty results area that implies zero problems.
  */
 
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
+import type { Severity } from "@siteaudit/shared-types";
+
+import { useAuth } from "../../auth/AuthProvider.js";
 import { ApiError } from "../../lib/api.js";
 import { presentCategory, presentFailure, presentStage, presentStatus } from "../../lib/audit-labels.js";
-import { useAudit, useCancelAudit } from "../../lib/audits.js";
+import {
+  downloadReport,
+  useAudit,
+  useCancelAudit,
+  useFindings,
+  type AiStatus,
+  type Audit,
+  type Finding,
+} from "../../lib/audits.js";
 import { Badge } from "../../components/ui/Badge.js";
 import { Button } from "../../components/ui/Button.js";
 import { EmptyState } from "../../components/ui/EmptyState.js";
@@ -27,14 +39,76 @@ function formatDate(value: string | null): string {
   });
 }
 
+const SEVERITY_LABEL: Readonly<Record<Severity, string>> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
+
+/** What the AI status means, in a sentence a client can act on (or ignore). */
+function aiNote(status: AiStatus): string | null {
+  if (status === "unavailable") {
+    return "Written explanations could not be produced for this audit. The findings and the score do not depend on them.";
+  }
+  if (status === "skipped") {
+    return "This audit was produced without AI-written explanations. The findings and the score are complete without them.";
+  }
+  return null;
+}
+
+function FindingCard({ finding }: { readonly finding: Finding }) {
+  return (
+    <li className="border-t border-line py-4 first:border-t-0">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <Badge
+          tone={
+            finding.severity === "critical" ? "critical" : finding.severity === "high" ? "warning" : "neutral"
+          }
+        >
+          {SEVERITY_LABEL[finding.severity]}
+        </Badge>
+        <h3 className="text-sm font-semibold text-ink">{finding.title}</h3>
+        <span className="text-xs text-muted">{presentCategory(finding.category)}</span>
+      </div>
+      {finding.pageUrl === null ? null : (
+        <p className="mt-1 break-all font-mono text-xs text-muted">{finding.pageUrl}</p>
+      )}
+      <p className="mt-2 text-sm text-ink">{finding.description}</p>
+      <p className="mt-1 text-sm text-muted">Evidence: {finding.evidence}</p>
+      {finding.recommendation === null ? null : (
+        <p className="mt-1 text-sm text-ink">Fix: {finding.recommendation}</p>
+      )}
+      {finding.aiExplanation === null ? null : (
+        <div className="mt-3 rounded-[var(--radius-control)] bg-tint-neutral p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+            Written by AI, from the evidence above
+          </p>
+          <p className="mt-1 text-sm text-ink">{finding.aiExplanation.plainExplanation}</p>
+          <p className="mt-1 text-sm text-ink">Why it matters: {finding.aiExplanation.businessImpact}</p>
+          <ol className="mt-1 list-decimal pl-5 text-sm text-ink">
+            {finding.aiExplanation.recommendedFix.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </li>
+  );
+}
+
 export function AuditDetail() {
   const { auditId = "" } = useParams<{ auditId: string }>();
   const navigate = useNavigate();
   const toast = useToast();
   const query = useAudit(auditId);
   const cancel = useCancelAudit();
+  const { accessToken } = useAuth();
+  const [downloading, setDownloading] = useState(false);
 
   const audit = query.data;
+  const finished = audit !== undefined && (audit.status === "completed" || audit.status === "partial");
+  const findingsQuery = useFindings(auditId, finished);
   const score = audit?.overallScore ?? null;
   const weightedCategories = (audit?.categoryScores ?? []).filter((entry) => entry.weight > 0);
 
@@ -93,6 +167,9 @@ export function AuditDetail() {
   // Both earlier branches returned; the query cannot be neither pending, error nor successful.
   if (audit === undefined) return null;
 
+  // An older API build may not send `ai`; the page then says nothing about explanations rather
+  // than rendering "undefined" where a status should be.
+  const ai = audit.ai ?? { status: "skipped" as const, model: null, summary: null };
   const status = presentStatus(audit.status);
   const stage = presentStage(audit.stage);
   const live = audit.status === "queued" || audit.status === "running";
@@ -110,6 +187,29 @@ export function AuditDetail() {
             >
               All audits
             </Link>
+            {finished ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={downloading}
+                onClick={() => {
+                  if (accessToken === null) return;
+                  setDownloading(true);
+                  void downloadReport(accessToken, audit as Audit)
+                    .catch((error: unknown) => {
+                      toast.show({
+                        title: "The report could not be downloaded",
+                        description:
+                          error instanceof ApiError ? error.message : "Please try again in a moment.",
+                        tone: "critical",
+                      });
+                    })
+                    .finally(() => setDownloading(false));
+                }}
+              >
+                Download report (PDF)
+              </Button>
+            ) : null}
             {audit.status === "queued" ? (
               <Button
                 variant="secondary"
@@ -262,6 +362,76 @@ export function AuditDetail() {
           </div>
         )}
       </section>
+
+      {finished ? (
+        <section
+          aria-labelledby="findings-heading"
+          className="rounded-[var(--radius-card)] border border-line bg-surface p-5"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="findings-heading" className="text-base font-semibold text-ink">
+              Findings
+            </h2>
+            {findingsQuery.data === undefined || findingsQuery.data.meta.total === 0 ? null : (
+              <p className="text-sm text-muted">
+                {(["critical", "high", "medium", "low"] as const)
+                  .map(
+                    (severity) =>
+                      `${SEVERITY_LABEL[severity]}: ${findingsQuery.data?.meta.counts[severity] ?? 0}`,
+                  )
+                  .join("   ")}
+              </p>
+            )}
+          </div>
+
+          {aiNote(findingsQuery.data?.meta.ai.status ?? ai.status) === null ? null : (
+            <p className="mt-3 rounded-[var(--radius-control)] bg-tint-neutral px-3 py-2 text-sm text-ink">
+              {aiNote(findingsQuery.data?.meta.ai.status ?? ai.status)}
+            </p>
+          )}
+
+          {ai.summary === null ? null : (
+            <div className="mt-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Summary, written by AI</p>
+              <p className="mt-1 text-sm text-ink">{ai.summary.overview}</p>
+              {ai.summary.topPriorities.length === 0 ? null : (
+                <ol className="mt-2 list-decimal pl-5 text-sm text-ink">
+                  {ai.summary.topPriorities.map((priority) => (
+                    <li key={priority}>{priority}</li>
+                  ))}
+                </ol>
+              )}
+              <p className="mt-2 text-xs text-muted">
+                This summary explains the findings below. It does not measure, and it cannot change a severity
+                or the score.
+              </p>
+            </div>
+          )}
+
+          {findingsQuery.isPending ? (
+            <p className="mt-3 text-sm text-muted" role="status">
+              Loading findings…
+            </p>
+          ) : findingsQuery.isError ? (
+            <p
+              role="alert"
+              className="mt-3 rounded-[var(--radius-control)] bg-tint-critical px-3 py-2 text-sm text-critical-strong"
+            >
+              The findings could not be loaded. The score above is unaffected.
+            </p>
+          ) : (findingsQuery.data?.findings.length ?? 0) === 0 ? (
+            <p className="mt-3 text-sm text-muted">
+              No issues were found by the checks that ran on the pages that could be read.
+            </p>
+          ) : (
+            <ul className="mt-2">
+              {(findingsQuery.data?.findings ?? []).map((finding) => (
+                <FindingCard key={finding.id} finding={finding} />
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

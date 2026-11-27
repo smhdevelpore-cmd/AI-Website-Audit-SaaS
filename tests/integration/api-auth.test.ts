@@ -42,6 +42,9 @@ const AUDIT_BASE: Omit<AuditRow, "id" | "user_id" | "url" | "host"> = {
   category_scores: null,
   error_code: null,
   error_message: null,
+  ai_status: "skipped",
+  ai_model: null,
+  ai_summary: null,
   started_at: "2026-11-27T10:00:00.000Z",
   completed_at: "2026-11-27T10:01:00.000Z",
   created_at: "2026-11-27T09:59:00.000Z",
@@ -106,6 +109,14 @@ class FakeData implements UserData {
 
   async listAudits(): Promise<{ rows: AuditRow[]; total: number }> {
     throw new Error("not used in this suite");
+  }
+
+  async listFindings(): Promise<readonly []> {
+    return [];
+  }
+
+  async listPageSummaries(): Promise<readonly []> {
+    return [];
   }
 
   async countAuditsSince(): Promise<number> {

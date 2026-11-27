@@ -19,7 +19,7 @@ Sliced so each phase ends with something that can be run and judged, and so the 
 | **6 · Rules + scoring** | rule engine over the parsed pages, normalisation and deduplication, deterministic scoring with the FR-13 weights, worker pipeline wired end to end | fixture pages produce stable findings and a reproducible score; a finished audit carries its score and the version that produced it |
 | **7 · AI + PDF** | evidence-only explanations, schema validation, PDF from stored snapshot | AI failure leaves deterministic findings intact; PDF renders from the snapshot alone |
 
-Phases 0–6 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
+Phases 0–7 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
 the end.
 
 ### Phase numbering changed
@@ -53,19 +53,29 @@ runs `crawling → rules → scoring` and an audit can complete with a score. Th
 and the AI explanation are still absent, so `performance` is measured by the crawler (response time,
 document weight) rather than by Lighthouse — labelled as ours everywhere it appears.
 
+Phase 7 arrived as explanations and the report. The worker now runs
+`crawling → rules → scoring → ai → persisting`, the audit page lists the findings, and a finished
+audit has a downloadable PDF. The AI step is optional at boot: with no `LLM_API_KEY` it leaves
+`ai_status = 'skipped'` and the report says so instead of showing an empty section. PageSpeed is
+still absent — it is Phase 8, and `performance` is still measured by our crawl.
+
 ## What exists now
 
 - `apps/api` — Express process: `GET /health` (auth + queue), the error envelope, bearer-token
   verification, `GET /api/v1/me`, `GET|PATCH /api/v1/profile`, the contract probe at
   `POST /api/v1/audits/validate`, and the audit endpoints: `POST /api/v1/audits` (validate,
   limit, persist, enqueue), `GET /api/v1/audits` (pagination, filter, search),
-  `GET /api/v1/audits/:id` and `DELETE /api/v1/audits/:id` (queued audits only).
+  `GET /api/v1/audits/:id`, `GET /api/v1/audits/:id/findings` (worst first, with AI
+  explanations), `GET /api/v1/audits/:id/report.pdf` (rendered from stored rows) and
+  `DELETE /api/v1/audits/:id` (queued audits only).
 - `apps/web` — Tailwind + React: landing page, sign in / sign up / password reset, and a protected
   shell (overview, audit history, settings) that calls the API with the session's own token.
-  Settings writes the profile; everything else shows an empty state because there is no data.
+  Settings writes the profile; an audit's page shows its score, its findings (with AI explanations
+  where they exist) and a download button for the PDF.
   See [`docs/UI.md`](UI.md).
 - `apps/worker` — BullMQ consumer: claims an audit (`queued → running`), revalidates the target,
-  records usage, then crawls, runs the rules and scores the result (`crawling → rules → scoring`).
+  records usage, then crawls, runs the rules, scores the result and asks a model to explain it
+  (`crawling → rules → scoring → ai → persisting`).
   A page it could not read makes the audit `partial`; a site it could not reach fails it without a
   score. See [`docs/QUEUES.md`](QUEUES.md). Retries are classified (infrastructure only), every write is conditional, and every stored
   message is generated from a code. See [`docs/QUEUES.md`](QUEUES.md).
@@ -84,7 +94,11 @@ document weight) rather than by Lighthouse — labelled as ours everywhere it ap
 - `packages/audit-rules` — the rule catalog (`rules-v1`: 30 rules over seven categories), the
   engine and the scorer. Every finding is a code plus evidence; the score is a pure function of the
   findings. See [`docs/RULES.md`](RULES.md).
-- `packages/report-template` — template version and snapshot metadata types.
+- `packages/ai-explain` — the explanation step: the prompt, its bounds, the result contract, and an
+  HTTP provider. No finding, severity or score can come out of it. See
+  [`docs/AI-EXPLAIN.md`](AI-EXPLAIN.md).
+- `packages/report-template` — the report: a snapshot built from rows, a PDF renderer with no
+  browser or network, and the outline it draws. See [`docs/REPORT.md`](REPORT.md).
 - `tests/` — unit, component and integration suites, including the PGlite schema/RLS suites and the
   crawler's local-fixture suites. Nothing in them reaches the public internet.
 
@@ -99,17 +113,35 @@ document weight) rather than by Lighthouse — labelled as ours everywhere it ap
 2. **Lighthouse/PageSpeed as a single point of failure.** Quota, latency and price are outside
    our control. The provider must be able to fail into a `partial` audit, never into a fabricated
    score.
-3. **AI drifting into invention.** Every prompt carries only stored evidence and the output is
-   schema-validated, but the failure mode is fluent prose that is wrong. Phase 7 needs a check
-   that each sentence maps to an evidence field.
+3. **AI drifting into invention.** Every prompt carries only stored evidence, the output is
+   schema-validated, has no numeric field, and a recommendation for an issue code the audit does
+   not have rejects the whole reply. What remains is fluent prose that is wrong *within* those
+   bounds: there is no sentence-to-evidence check, and Phase 7 does not claim one.
 4. **RLS mistakes.** A missing policy exposes one client's audit to another. Phase 2 now runs
    as two users, as `anon`, and as the service role, against real PostgreSQL. Still unproven:
    the hosted project, PostgREST's own parsing and Supabase Auth's endpoints.
-5. **PDF rendering untrusted text.** Scraped page text reaches the renderer; escaping and
-   resource blocking are part of that phase, not polish.
+5. **PDF rendering untrusted text.** Scraped page text reaches the renderer. It is now handled
+   rather than trusted: no embedded resources are fetched, no HTML is interpreted, every string is
+   sanitised to what the standard fonts can draw, and the filename is stripped of header
+   punctuation. Layout of pathological text (very long unbroken runs) is bounded, not pretty.
 6. **Scope creep.** The non-goals list in PRD §4 is the guard. Anything not on it waits.
 7. **Bus factor of one.** Migrations, env docs and the runbook stay in the repo so the project
    survives a handover.
+
+## Decisions made in Phase 7
+
+| Decision | Why |
+|---|---|
+| AI output lives beside a result, never inside one | `audit_findings.ai_explanation` is an object with five text fields and no room for a number; the score has its own columns. An explanation cannot become a measurement because there is nowhere to put one |
+| `ai_status` is a column with a check constraint | "No explanation" needs a reason. `skipped` (no key), `unavailable` (the provider failed) and `ok` are different facts, and the report prints the difference |
+| The AI step is not the last step | `persisting` finishes the audit, so a slow provider delays an audit and never decides its outcome. Scoring no longer terminates the pipeline |
+| A reply that names an unknown issue code rejects the whole reply | A model that wrote about a finding nobody made is not partially right; it is ungrounded |
+| Timeouts are not retried; other failures are, once | A slow provider is slow twice. A 500 or a malformed reply is worth one more attempt |
+| PageSpeed stays out of Phase 7 | The acceptance for this phase is that a provider failure cannot fabricate a score, and that is easier to prove with no provider present. Phase 8 adds the metrics with their own status |
+| The PDF is rendered per request, not stored | No cache to go stale, no object to leak, and the acceptance criterion — every number from stored rows — is visible in one function. `audit_reports` stays unused and `docs/REPORT.md` says so |
+| The report's content is an outline before it is a PDF | What a report says is what needs testing; asserting on compressed PDF bytes needs a text extractor, asserting on the outline needs nothing |
+| Findings and downloads are fetched with the session token | A signed URL in a link is a report anyone holding the link can read; an `<a href>` cannot send an `Authorization` header, so the browser gets a blob |
+| The audit page shows findings and the AI label | Once the scan writes findings, a page that shows only a score is withholding the result — and an empty explanation list would read as "nothing was found" |
 
 ## Decisions made in Phase 6
 

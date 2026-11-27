@@ -12,7 +12,7 @@ import { AUDIT_MAX_PAGES_LIMIT } from "@siteaudit/validation";
 describe("workspace wiring", () => {
   it("resolves every package through its public entry", () => {
     expect(RULES_VERSION).toBe("rules-v1");
-    expect(REPORT_TEMPLATE_VERSION).toBe(0);
+    expect(REPORT_TEMPLATE_VERSION).toBe("report-v1");
     expect(DOMAIN_SCHEMA_VERSION).toBe(1); // bumped when the Phase 1 contracts landed
     expect(AUDIT_MAX_PAGES_LIMIT).toBe(25);
   });

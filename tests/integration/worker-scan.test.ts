@@ -141,8 +141,16 @@ describe("a scan of a working site", () => {
   it("records the stages in the order the TRD names them", async () => {
     await runAuditJob({ auditId: AUDIT_ID, attempt: 1 }, deps());
 
-    // `validating` is written by `markRunning`; the stages below are the steps, in order.
-    expect(data.stages.map((entry) => entry.stage)).toEqual(["crawling", "rules", "scoring"]);
+    // `validating` is written by `markRunning`; the stages below are the steps, in order. The
+    // `ai` stage is recorded even with no provider configured — the step runs and decides there
+    // is nothing to explain, which is different from the step not existing.
+    expect(data.stages.map((entry) => entry.stage)).toEqual([
+      "crawling",
+      "rules",
+      "scoring",
+      "ai",
+      "persisting",
+    ]);
   });
 
   it("stores every page it fetched, with the URL the content came from", async () => {

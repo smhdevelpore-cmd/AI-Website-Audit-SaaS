@@ -31,9 +31,10 @@ import {
 
 import { currentData, currentUser, requireAuth, type AuthContext } from "../auth/middleware.js";
 import { requireOwnedAudit } from "../data/audits.js";
-import { toAuditView } from "../data/types.js";
+import { bySeverity, toAuditView, toFindingView } from "../data/types.js";
 import { validateBody, validateQuery } from "../http/validate.js";
 import { USAGE_WINDOW_MS, type AuditLimits } from "../limits.js";
+import { buildAuditReport, reportFilename } from "../report.js";
 
 export interface AuditRouterDeps {
   /** `null` when this deployment has no Redis: submissions are refused rather than faked. */
@@ -169,6 +170,84 @@ export function auditRouter(auth: AuthContext, deps: AuditRouterDeps): Router {
     // A poll endpoint that is cached is a poll endpoint that lies about progress.
     response.setHeader("Cache-Control", "no-store");
     response.json({ success: true, data: toAuditView(audit) });
+  });
+
+  /**
+   * The findings, worst first, with the AI explanation stored beside each one.
+   *
+   * The counts travel in `meta` so the audit page can show a severity summary without sorting
+   * the list itself, and the AI status travels with them so an empty explanation list is never
+   * mistaken for "there was nothing to explain".
+   */
+  router.get("/:id/findings", requireAuth(auth), async (request, response) => {
+    const user = currentUser(request);
+    const id = request.params["id"];
+    if (typeof id !== "string") {
+      throw new AppError("not_found", "No audit with that id.");
+    }
+
+    const audit = await requireOwnedAudit(currentData(request), id, user.id);
+    const rows = await currentData(request).listFindings(audit.id);
+    const sorted = [...rows].sort(bySeverity);
+
+    const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const row of sorted) {
+      if (row.severity in counts) counts[row.severity as keyof typeof counts] += 1;
+    }
+
+    response.setHeader("Cache-Control", "no-store");
+    response.json({
+      success: true,
+      data: sorted.map(toFindingView),
+      meta: {
+        total: sorted.length,
+        counts,
+        ai: {
+          status: audit.ai_status === "ok" || audit.ai_status === "unavailable" ? audit.ai_status : "skipped",
+          model: audit.ai_model,
+        },
+      },
+    });
+  });
+
+  /**
+   * The PDF. Rendered per request from stored rows — there is no cache to go stale and no queue to
+   * wait on — and refused before the audit finished, because a report of half an audit is a
+   * document that lies by omission.
+   */
+  router.get("/:id/report.pdf", requireAuth(auth), async (request, response) => {
+    const user = currentUser(request);
+    const data = currentData(request);
+    const id = request.params["id"];
+    if (typeof id !== "string") {
+      throw new AppError("not_found", "No audit with that id.");
+    }
+
+    const audit = await requireOwnedAudit(data, id, user.id);
+    if (audit.status !== "completed" && audit.status !== "partial") {
+      throw new AppError("report_not_ready", "This audit has not finished, so there is no report yet.", {
+        logContext: { auditId: audit.id, status: audit.status },
+      });
+    }
+
+    // The brand line is the agency's own name; a missing profile simply has none.
+    const profile = await data.findProfile(user.id);
+    const pdf = await buildAuditReport({
+      data,
+      audit,
+      agencyName: profile?.agency_name ?? null,
+      now: now(),
+    });
+
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${reportFilename(audit.host, audit.completed_at)}"`,
+    );
+    // A report is a snapshot of stored rows; the browser may keep it, a shared cache may not.
+    response.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.status(200).end(Buffer.from(pdf));
   });
 
   /**

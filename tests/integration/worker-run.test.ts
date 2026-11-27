@@ -101,6 +101,8 @@ describe("runAuditJob", () => {
       savePages: (id, rows) => data.savePages(id, rows),
       saveFindings: (id, rows) => data.saveFindings(id, rows),
       saveScores: (id, scores) => data.saveScores(id, scores),
+      saveExplanations: (id, explanations) => data.saveExplanations(id, explanations),
+      markAiUnavailable: (id) => data.markAiUnavailable(id),
     };
 
     const result = await runAuditJob({ auditId: AUDIT_ID, attempt: 1 }, deps({ data: refusing }));

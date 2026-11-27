@@ -369,6 +369,83 @@ describe("supabase migrations", () => {
     );
   });
 
+  it("stores AI explanations beside a result, never as part of one", async () => {
+    const userId = (
+      await database.db.query<{ id: string }>(
+        `insert into auth.users (email) values ('ai@example.com') returning id`,
+      )
+    ).rows[0]?.id as string;
+
+    // A summary with no status saying it was produced is an unlabelled AI claim.
+    await expect(
+      database.db.exec(
+        `insert into public.audits
+           (user_id, url, host, status, completed_at, overall_score, scoring_version, ai_status, ai_summary)
+         values ('${userId}','https://sm.example','sm.example','completed', now(), 82, 'rules-v1', 'skipped',
+                 '{"overview":"x","topPriorities":["y"],"limitations":[]}'::jsonb)`,
+      ),
+    ).rejects.toThrow(/audits_ai_summary_has_status/);
+
+    await expect(
+      database.db.exec(
+        `insert into public.audits (user_id, url, host, ai_status)
+         values ('${userId}','https://st.example','st.example','invented')`,
+      ),
+    ).rejects.toThrow(/audits_ai_status_valid/);
+
+    await expect(
+      database.db.exec(
+        `insert into public.audits (user_id, url, host, ai_status, ai_model)
+         values ('${userId}','https://model.example','model.example','ok','${"m".repeat(121)}')`,
+      ),
+    ).rejects.toThrow(/audits_ai_model_length/);
+
+    // A real one, stored with its model.
+    await database.db.exec(
+      `insert into public.audits
+         (user_id, url, host, status, completed_at, overall_score, scoring_version, ai_status, ai_model, ai_summary)
+       values ('${userId}','https://good.example','good.example','completed', now(), 82, 'rules-v1', 'ok', 'model-v1',
+               '{"overview":"The site works.","topPriorities":["Add titles"],"limitations":[]}'::jsonb)`,
+    );
+
+    const auditId = (
+      await database.db.query<{ id: string }>(`select id from public.audits where host = 'good.example'`)
+    ).rows[0]?.id as string;
+
+    const finding = (explanation: string): string =>
+      `insert into public.audit_findings
+         (audit_id, issue_code, category, severity, title, description, evidence, source, confidence, ai_explanation)
+       values ('${auditId}','missing-title','seo','high','Missing title','No <title>.','{}','rule','observed', ${explanation})`;
+
+    // An explanation is an object or nothing: a string is not a stored explanation.
+    await expect(database.db.exec(finding(`'"just a sentence"'`))).rejects.toThrow(
+      /audit_findings_ai_explanation_object/,
+    );
+
+    await database.db.exec(
+      finding(
+        `'{"issueCode":"missing-title","plainExplanation":"A result shows the address.","businessImpact":"Fewer clicks.","recommendedFix":["Add a title"],"difficulty":"easy","priority":"high"}'::jsonb`,
+      ),
+    );
+
+    // The columns a result is made of are untouched by the explanation beside it.
+    const stored = await database.db.query<{ severity: string; ai: string | null }>(
+      `select severity, ai_explanation->>'difficulty' as ai from public.audit_findings where audit_id = $1`,
+      [auditId],
+    );
+    expect(stored.rows[0]).toEqual({ severity: "high", ai: "easy" });
+
+    // A row that says nothing about AI reads as `skipped`: it never had an explanation, and the
+    // default says that rather than leaving the column empty for a reader to interpret.
+    await database.db.exec(
+      `insert into public.audits (user_id, url, host) values ('${userId}','https://default.example','default.example')`,
+    );
+    const defaults = await database.db.query<{ ai_status: string }>(
+      `select ai_status from public.audits where host = 'default.example'`,
+    );
+    expect(defaults.rows[0]?.ai_status).toBe("skipped");
+  });
+
   it("deduplicates findings per audit, issue code and page scope", async () => {
     const userId = (
       await database.db.query<{ id: string }>(

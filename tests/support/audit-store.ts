@@ -16,11 +16,26 @@ import type {
   AuditListQuery,
   AuditListResult,
   AuditRow,
+  FindingRow,
   NewAuditRow,
+  PageRowSummary,
   ProfilePatch,
   ProfileRow,
   UserData,
 } from "../../apps/api/src/data/types.js";
+
+export interface SeedFinding {
+  readonly id?: string;
+  readonly pageUrl?: string | null;
+  readonly issueCode: string;
+  readonly category: string;
+  readonly severity: string;
+  readonly title?: string;
+  readonly description?: string;
+  readonly evidence?: string;
+  readonly recommendation?: string | null;
+  readonly aiExplanation?: FindingRow["ai_explanation"];
+}
 
 export interface SeedAudit {
   readonly id?: string;
@@ -34,11 +49,21 @@ export interface SeedAudit {
   readonly overallScore?: number | null;
   readonly clientName?: string | null;
   readonly projectName?: string | null;
+  readonly aiStatus?: "ok" | "unavailable" | "skipped";
+  readonly aiModel?: string | null;
+  readonly aiSummary?: AuditRow["ai_summary"];
+  readonly categoryScores?: AuditRow["category_scores"];
+  readonly scoringVersion?: string | null;
+  readonly completedAt?: string | null;
+  readonly pagesScanned?: number;
 }
 
 export class InMemoryUserData implements UserData {
   readonly profiles = new Map<string, ProfileRow>();
   readonly audits = new Map<string, AuditRow>();
+  /** Rows for `audit_findings` and `audit_pages`, keyed by audit id. */
+  readonly findings = new Map<string, FindingRow[]>();
+  readonly pages = new Map<string, PageRowSummary[]>();
   private clock = 0;
 
   constructor(readonly now: () => Date = () => new Date()) {}
@@ -81,15 +106,18 @@ export class InMemoryUserData implements UserData {
       status,
       stage: seed.stage ?? null,
       max_pages: seed.maxPages ?? 25,
-      pages_scanned: 0,
+      pages_scanned: seed.pagesScanned ?? 0,
       was_partial: false,
-      scoring_version: null,
+      scoring_version: seed.scoringVersion ?? null,
       overall_score: seed.overallScore ?? null,
-      category_scores: null,
+      category_scores: seed.categoryScores ?? null,
       error_code: seed.errorCode ?? null,
       error_message: seed.errorCode ? publicAuditFailureMessage(seed.errorCode) : null,
+      ai_status: seed.aiStatus ?? "skipped",
+      ai_model: seed.aiModel ?? null,
+      ai_summary: seed.aiSummary ?? null,
       started_at: null,
-      completed_at: terminal ? created : null,
+      completed_at: seed.completedAt ?? (terminal ? created : null),
       created_at: created,
       updated_at: created,
     };
@@ -127,6 +155,7 @@ export class InMemoryUserData implements UserData {
       status: "queued",
       stage: null,
       max_pages: input.maxPages,
+      // `createAudit` inserts a queued row: nothing has been measured and nothing explained.
       pages_scanned: 0,
       was_partial: false,
       scoring_version: null,
@@ -134,6 +163,9 @@ export class InMemoryUserData implements UserData {
       category_scores: null,
       error_code: null,
       error_message: null,
+      ai_status: "skipped",
+      ai_model: null,
+      ai_summary: null,
       started_at: null,
       completed_at: null,
       created_at: created,
@@ -177,6 +209,51 @@ export class InMemoryUserData implements UserData {
 
   async deleteAudit(auditId: string): Promise<boolean> {
     return this.audits.delete(auditId);
+  }
+
+  /** Seeds one finding, and the page row it belongs to when a URL is named. */
+  seedFinding(auditId: string, seed: SeedFinding): FindingRow {
+    const pageUrl = seed.pageUrl ?? null;
+    if (pageUrl !== null) {
+      const pages = this.pages.get(auditId) ?? [];
+      if (!pages.some((page) => page.url === pageUrl)) {
+        pages.push({ url: pageUrl, fetch_error: null });
+        this.pages.set(auditId, pages);
+      }
+    }
+    const row: FindingRow = {
+      id: seed.id ?? crypto.randomUUID(),
+      audit_id: auditId,
+      page_id: pageUrl === null ? null : `page:${pageUrl}`,
+      issue_code: seed.issueCode,
+      category: seed.category,
+      severity: seed.severity,
+      title: seed.title ?? `${seed.issueCode} on ${pageUrl ?? "the site"}`,
+      description: seed.description ?? "A description of the defect.",
+      evidence: seed.evidence ?? "The evidence the rule observed.",
+      recommendation: seed.recommendation ?? "A deterministic recommendation.",
+      source: "rule",
+      status: "open",
+      ai_explanation: seed.aiExplanation ?? null,
+      page: pageUrl === null ? null : { url: pageUrl },
+    };
+    this.findings.set(auditId, [...(this.findings.get(auditId) ?? []), row]);
+    return row;
+  }
+
+  seedPage(auditId: string, url: string, fetchError: string | null = null): void {
+    const pages = this.pages.get(auditId) ?? [];
+    pages.push({ url, fetch_error: fetchError });
+    this.pages.set(auditId, pages);
+  }
+
+  async listFindings(auditId: string): Promise<readonly FindingRow[]> {
+    // RLS: findings are visible through their audit, so an audit the caller cannot see has none.
+    return this.findings.get(auditId) ?? [];
+  }
+
+  async listPageSummaries(auditId: string): Promise<readonly PageRowSummary[]> {
+    return this.pages.get(auditId) ?? [];
   }
 
   /** Rows the caller can see, for assertions that read like the question being asked. */

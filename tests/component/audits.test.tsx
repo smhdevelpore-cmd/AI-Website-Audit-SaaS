@@ -10,7 +10,7 @@
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,6 +39,7 @@ function audit(overrides: Record<string, unknown> = {}): Record<string, unknown>
     maxPages: 10,
     pagesScanned: 0,
     partial: false,
+    ai: { status: "skipped", model: null, summary: null },
     error: null,
     createdAt: "2026-11-27T09:00:00.000Z",
     updatedAt: "2026-11-27T09:00:00.000Z",
@@ -62,6 +63,53 @@ const fail = (status: number, code: string, message: string, details?: unknown):
       headers: { "content-type": "application/json" },
     },
   );
+
+/**
+ * The detail page makes two requests once an audit has finished: the audit, then its findings.
+ * Answering by URL keeps each test saying what it is about, instead of one stub answering
+ * everything with the same object.
+ */
+function stubAuditWithFindings(
+  auditData: Record<string, unknown>,
+  findings: ReadonlyArray<Record<string, unknown>>,
+  options: { readonly aiStatus?: string } = {},
+): ReturnType<typeof vi.fn> {
+  const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes("/findings")) {
+      return ok(findings, {
+        total: findings.length,
+        counts: { critical: 0, high: 1, medium: 0, low: 0 },
+        ai: { status: options.aiStatus ?? "skipped", model: null },
+      });
+    }
+    if (url.endsWith(".pdf")) {
+      return new Response(new Uint8Array([37, 80, 68, 70]), {
+        status: 200,
+        headers: { "content-type": "application/pdf" },
+      });
+    }
+    return ok(auditData);
+  });
+  vi.stubGlobal("fetch", fetchStub);
+  return fetchStub;
+}
+
+function finding(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "finding-1",
+    issueCode: "missing-title",
+    category: "seo",
+    severity: "high",
+    title: "Page has no title",
+    description: "A search result has no headline to show.",
+    evidence: "No non-empty <title> element was found.",
+    recommendation: "Add a unique title to every page.",
+    pageUrl: "https://example.com/about",
+    aiExplanation: null,
+    ...overrides,
+  };
+}
 
 function renderScreen(ui: ReactNode, initialPath = "/audits") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -280,28 +328,22 @@ describe("audit detail", () => {
   });
 
   it("shows the score and each category's weight for a finished audit", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        ok(
-          audit({
-            status: "completed",
-            completedAt: "2026-11-27T09:05:00.000Z",
-            pagesScanned: 6,
-            overallScore: 82,
-            categoryScores: [
-              { category: "performance", score: 100, weight: 25 },
-              { category: "seo", score: 76, weight: 25 },
-              { category: "technical", score: 88, weight: 20 },
-              { category: "mobile", score: null, weight: 15 },
-              { category: "accessibility", score: 100, weight: 10 },
-              { category: "security", score: 100, weight: 5 },
-              { category: "links", score: 88, weight: 0 },
-            ],
-          }),
-        ),
-      ),
-    );
+    const finished = audit({
+      status: "completed",
+      completedAt: "2026-11-27T09:05:00.000Z",
+      pagesScanned: 6,
+      overallScore: 82,
+      categoryScores: [
+        { category: "performance", score: 100, weight: 25 },
+        { category: "seo", score: 76, weight: 25 },
+        { category: "technical", score: 88, weight: 20 },
+        { category: "mobile", score: null, weight: 15 },
+        { category: "accessibility", score: 100, weight: 10 },
+        { category: "security", score: 100, weight: 5 },
+        { category: "links", score: 88, weight: 0 },
+      ],
+    });
+    stubAuditWithFindings(finished, []);
 
     renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
 
@@ -311,6 +353,98 @@ describe("audit detail", () => {
     expect(screen.getByText("N/A")).toBeTruthy();
     // Links carries no weight of its own: its findings are already counted in Technical.
     expect(screen.queryByText(/Links/)).toBeNull();
+  });
+
+  it("lists findings worst first, with the evidence and the fix", async () => {
+    const finished = audit({
+      status: "completed",
+      completedAt: "2026-11-27T09:05:00.000Z",
+      overallScore: 82,
+      categoryScores: [{ category: "seo", score: 76, weight: 25 }],
+    });
+    stubAuditWithFindings(finished, [finding()]);
+
+    renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
+
+    expect(await screen.findByText("Page has no title")).toBeTruthy();
+    expect(screen.getByText("High")).toBeTruthy();
+    expect(screen.getByText(/Evidence: No non-empty/)).toBeTruthy();
+    expect(screen.getByText(/Fix: Add a unique title/)).toBeTruthy();
+    expect(screen.getByText("https://example.com/about")).toBeTruthy();
+  });
+
+  it("labels an AI explanation as one, and never as the finding itself", async () => {
+    const finished = audit({
+      status: "completed",
+      completedAt: "2026-11-27T09:05:00.000Z",
+      overallScore: 82,
+      categoryScores: [{ category: "seo", score: 76, weight: 25 }],
+      ai: { status: "ok", model: "test-model", summary: null },
+    });
+    stubAuditWithFindings(
+      finished,
+      [
+        finding({
+          aiExplanation: {
+            issueCode: "missing-title",
+            plainExplanation: "A search engine shows the address instead of a headline.",
+            businessImpact: "Fewer people click through from search.",
+            recommendedFix: ["Write a title", "Keep it under 60 characters"],
+            difficulty: "easy",
+            priority: "high",
+          },
+        }),
+      ],
+      { aiStatus: "ok" },
+    );
+
+    renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
+
+    expect(await screen.findByText(/Written by AI, from the evidence above/)).toBeTruthy();
+    expect(screen.getByText("A search engine shows the address instead of a headline.")).toBeTruthy();
+    expect(screen.getByText("Write a title")).toBeTruthy();
+  });
+
+  it("says when there is no AI explanation instead of showing an empty section", async () => {
+    const finished = audit({
+      status: "completed",
+      completedAt: "2026-11-27T09:05:00.000Z",
+      overallScore: 82,
+      categoryScores: [{ category: "seo", score: 76, weight: 25 }],
+      ai: { status: "unavailable", model: null, summary: null },
+    });
+    stubAuditWithFindings(finished, [finding()], { aiStatus: "unavailable" });
+
+    renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
+
+    expect(await screen.findByText(/explanations could not be produced/i)).toBeTruthy();
+    expect(screen.getByText(/do not depend on them/)).toBeTruthy();
+  });
+
+  it("offers the PDF for a finished audit and fetches it with the session token", async () => {
+    const finished = audit({
+      status: "completed",
+      completedAt: "2026-11-27T09:05:00.000Z",
+      overallScore: 82,
+      categoryScores: [{ category: "seo", score: 76, weight: 25 }],
+    });
+    const fetchStub = stubAuditWithFindings(finished, []);
+
+    // jsdom has neither of these; the page must not depend on the browser having them in a test.
+    const createObjectURL = vi.fn(() => "blob:report");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Download report (PDF)" }));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+
+    const pdfCall = fetchStub.mock.calls.find(([input]) => String(input).endsWith("/report.pdf"));
+    expect(pdfCall).toBeDefined();
+    expect((pdfCall?.[1] as RequestInit).headers).toMatchObject({ authorization: "Bearer token" });
+    click.mockRestore();
   });
 
   it("shows why a failed audit failed, and does not offer to cancel it", async () => {

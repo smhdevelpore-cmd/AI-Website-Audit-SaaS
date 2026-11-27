@@ -80,6 +80,7 @@ export const apiEnvSchema = z
     PAGESPEED_API_KEY: optionalText,
     LLM_API_KEY: optionalText,
     LLM_MODEL: optionalText,
+    LLM_ENDPOINT: optionalUrl,
     CRAWLER_USER_AGENT: z
       .string()
       .trim()
@@ -119,6 +120,7 @@ export const workerEnvSchema = z
     PAGESPEED_API_KEY: optionalText,
     LLM_API_KEY: optionalText,
     LLM_MODEL: optionalText,
+    LLM_ENDPOINT: optionalUrl,
     CRAWLER_USER_AGENT: z
       .string()
       .trim()
