@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 
-import { useAuth } from "../auth/AuthProvider.js";
-import { AuthLayout, FormError, fieldStyle, labelStyle } from "./layout.js";
+import { useAuth } from "../../auth/AuthProvider.js";
+import { Button } from "../../components/ui/Button.js";
+import { Input } from "../../components/ui/Input.js";
+import { AuthLayout } from "./AuthLayout.js";
 
 export function ForgotPassword() {
   const { requestPasswordReset } = useAuth();
@@ -28,33 +30,40 @@ export function ForgotPassword() {
   }
 
   return (
-    <AuthLayout title="Reset your password">
-      <FormError message={error} />
+    <AuthLayout
+      title="Reset your password"
+      description="We will email you a link that signs you in once, so you can set a new password."
+      footer={<Link to="/login">Back to sign in</Link>}
+    >
       {sent ? (
-        <p role="status">
+        <p role="status" className="text-sm text-ink">
           If that address has an account, a reset link is on its way. The link expires after a short while.
         </p>
       ) : (
-        <form onSubmit={onSubmit} noValidate>
-          <label style={labelStyle}>
-            Email
-            <input
+        <>
+          {error === null ? null : (
+            <p
+              role="alert"
+              className="mb-4 rounded-[var(--radius-control)] bg-tint-critical px-3 py-2 text-sm font-medium text-critical-strong"
+            >
+              {error}
+            </p>
+          )}
+          <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+            <Input
+              label="Email"
               type="email"
               autoComplete="email"
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              style={fieldStyle}
             />
-          </label>
-          <button type="submit" disabled={busy}>
-            {busy ? "Sending…" : "Send reset link"}
-          </button>
-        </form>
+            <Button type="submit" loading={busy} className="w-full">
+              {busy ? "Sending" : "Send reset link"}
+            </Button>
+          </form>
+        </>
       )}
-      <p style={{ marginTop: "1rem", fontSize: "0.9rem" }}>
-        <Link to="/login">Back to sign in</Link>
-      </p>
     </AuthLayout>
   );
 }

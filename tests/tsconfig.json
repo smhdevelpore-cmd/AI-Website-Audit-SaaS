@@ -8,14 +8,16 @@
     "declarationMap": false,
     "moduleResolution": "Bundler",
     "module": "ESNext",
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "paths": {
       "@siteaudit/shared-types": ["../packages/shared-types/src/index.ts"],
       "@siteaudit/validation": ["../packages/validation/src/index.ts"],
       "@siteaudit/audit-rules": ["../packages/audit-rules/src/index.ts"],
       "@siteaudit/report-template": ["../packages/report-template/src/index.ts"],
       "@siteaudit/config": ["../packages/config/src/index.ts"]
-    }
+    },
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["**/*.ts", "../apps/api/src/http/types.d.ts"]
+  "include": ["**/*.ts", "**/*.tsx", "../apps/api/src/http/types.d.ts"]
 }

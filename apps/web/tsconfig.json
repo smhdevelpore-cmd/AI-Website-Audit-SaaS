@@ -13,8 +13,7 @@
     "types": ["vite/client"],
     "paths": {
       "@siteaudit/config": ["../../packages/config/src/index.ts"],
-      "@siteaudit/shared-types": ["../../packages/shared-types/src/index.ts"],
-      "@siteaudit/validation": ["../../packages/validation/src/index.ts"]
+      "@siteaudit/shared-types": ["../../packages/shared-types/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]

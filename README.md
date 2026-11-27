@@ -3,10 +3,14 @@
 Audits a public website URL, collects real measurements, explains findings in plain language,
 prioritises the fixes and produces a client-ready PDF.
 
-**Status: Phase 2, accounts and database.** You can sign up, sign in and edit a profile; every
-row is protected by row-level security. **Nothing audits a website yet** — there is no crawler and
-no queue. See [`docs/PLAN.md`](docs/PLAN.md) for the phase plan, risks and open questions, and
-[`docs/SUPABASE.md`](docs/SUPABASE.md) for local setup, migrations and what the RLS tests cover.
+**Status: Phase 3, interface foundation.** The app shell, design system and every screen that can
+exist without a crawler are built: sign up, sign in, password reset, overview, audit history,
+settings. **Nothing audits a website yet** — there is no crawler and no queue, so the audit
+screens show empty states rather than fake data.
+
+- [`docs/PLAN.md`](docs/PLAN.md) — phase plan, risks, decisions, open questions
+- [`docs/UI.md`](docs/UI.md) — tokens, contrast measurements, components, accessibility, what is absent and why
+- [`docs/SUPABASE.md`](docs/SUPABASE.md) — local setup, migrations, what the RLS tests cover
 
 ## Source of truth
 
@@ -41,18 +45,18 @@ starts without any of them and serves `GET /health`.
 | `npm run format` / `npm run format:check` | Prettier write / verify |
 | `npm run typecheck` | `tsc -b` over the project graph, then the test projects and the web app |
 | `npm run test` | Vitest across packages and `tests/`, including the RLS suite (no Docker needed) |
-| `npm run build` | `tsc -b` for every Node package, Vite for the web app |
+| `npm run build` | `tsc -b` for every Node package, Vite + Tailwind for the web app |
 | `npm run ci` | all of the above, in the order CI runs them |
 | `npm run clean` | removes every `dist/` and `.tsbuildinfo` |
 
-Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 228 tests passing,
+Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 293 tests passing,
 build 0 across all eight workspaces.
 
 ## Layout
 
 ```
 apps/
-  web/          Vite + React: sign in, sign up, password reset, dashboard
+  web/          Vite + React + Tailwind: landing, auth, app shell, settings
   api/          Express: token verification, profile, one audit read
   worker/       queue consumer, not wired   (no Redis yet)
 packages/
@@ -61,7 +65,7 @@ packages/
   config/       environment schemas, one per process, validated at startup
   audit-rules/  rule interface, empty registry
   report-template/ template version + snapshot metadata
-tests/          unit + integration: RLS isolation, migrations, API auth, adapters
+tests/          unit, component (jsdom) and integration: RLS isolation, migrations, API auth, UI
 supabase/migrations/   schema, profile provisioning, row-level security
 docs/           the specification and the plan
 ```
@@ -77,3 +81,6 @@ docs/           the specification and the plan
   into the browser bundle. The service-role key never appears in a request path.
 - Tenant isolation is the database's job: the API forwards the caller's own token to PostgREST
   and RLS decides what exists. The API's ownership check is a second gate, not the only one.
+- No dead controls. If a screen cannot do the thing yet, it says so instead of rendering a button
+  that does nothing — and no number is shown until a real one exists.
+- Contrast is measured, not eyeballed. `docs/UI.md` §1 lists every ratio and a test recomputes them.

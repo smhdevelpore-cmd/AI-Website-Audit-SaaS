@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens (docs/Design.md §2), with the contrast fixed.
+ *
+ * Design.md proposes white text on the primary green #53B107. That measures 2.74:1, and the
+ * same document (§7) requires sufficient contrast. The green is kept exactly as specified and
+ * the *text on it* becomes charcoal (6.00:1); where green is used as text it is darkened
+ * (6.51:1). Amber and red are likewise split into a fill and a text-safe strong variant,
+ * because white on #D97706 is 3.19:1 — large-text only, not body text.
+ *
+ * Every ratio below was measured; tests/unit/design-tokens.test.ts recomputes them from this
+ * file and fails if a future edit drops one under its threshold.
+ */
+@theme {
+  /* surfaces and text */
+  --color-canvas: #f7f8fa; /* page background */
+  --color-surface: #ffffff; /* cards, panels */
+  --color-ink: #17202a; /* body text — 16.45:1 on surface, 15.48:1 on canvas */
+  --color-muted: #667085; /* secondary text — 4.97:1 on surface, 4.68:1 on canvas */
+  --color-line: #e5e7eb; /* separators only, never the only edge of a control */
+  --color-line-strong: #868f9e; /* input borders — 3.26:1 on surface, 3.07:1 on canvas */
+
+  /* brand */
+  --color-primary: #53b107; /* fill; charcoal on it is 6.00:1 */
+  --color-on-primary: #17202a;
+  --color-primary-strong: #2f6b03; /* green as text or focus ring — 6.51:1 on surface */
+
+  /* status */
+  --color-critical: #dc2626; /* fill with white text — 4.83:1 */
+  --color-critical-strong: #b42318; /* text on the critical tint — 5.45:1 */
+  --color-warning: #d97706; /* icon/UI fill only — 3.19:1 with white */
+  --color-warning-strong: #92400e; /* text on the warning tint — 6.37:1 */
+  --color-success: #16a34a; /* fill only — 3.30:1 with white */
+  --color-success-strong: #15803d; /* text on the success tint — 4.57:1 */
+
+  /* badge tints */
+  --color-tint-neutral: #f2f4f7;
+  --color-tint-brand: #f0fdf4;
+  --color-tint-success: #dcfce7;
+  --color-tint-warning: #fef3c7;
+  --color-tint-critical: #fee4e2;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --radius-card: 14px;
+  --radius-control: 10px;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* One visible focus treatment for the whole app, dark enough for white, canvas and green. */
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Design.md §7: reduced motion is honoured, not merely mentioned. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

@@ -13,12 +13,14 @@ Sliced so each phase ends with something that can be run and judged, and so the 
 | **1 · Contracts** | shared domain types and enums, Zod schemas for audits, findings, pagination, profile and AI output, env validation per process, typed errors and envelopes | contracts compile; invalid input produces one predictable code with a field path |
 | **1b · URL safety** | `packages/validation`: scheme, credentials, ports, IP and DNS rules | unit tests cover every blocked range, including v4-mapped, NAT64, 6to4 |
 | **2 · Supabase schema, auth, ownership** | seven tables, constraints, indexes, RLS, profile provisioning, token verification, ownership helper, browser auth flow | cross-tenant access fails in tests, not in production |
-| **3 · Bounded fetcher** | HTTP fetch pinned to validated addresses, redirect revalidation, size/time limits | tests: redirect to metadata, redirect loop, oversized body, rebind simulation |
-| **4 · Rules + scoring** | HTML parse, rule engine, normalisation, deterministic scoring with weights from PRD FR-13 | fixture pages produce stable findings and a reproducible score |
-| **5 · Jobs** | Redis + BullMQ, worker lifecycle, stage reporting, partial results | a real site is audited end to end without holding an HTTP request open |
-| **6 · AI + PDF** | evidence-only explanations, schema validation, PDF from stored snapshot | AI failure leaves deterministic findings intact; PDF renders from the snapshot alone |
+| **3 · Interface foundation** | design tokens, Tailwind, shared components, app shell, landing, auth screens, dashboard/history/settings shells, accessibility | responsive, labelled, no dead controls; contrast measured and tested |
+| **4 · Bounded fetcher** | HTTP fetch pinned to validated addresses, redirect revalidation, size/time limits | tests: redirect to metadata, redirect loop, oversized body, rebind simulation |
+| **5 · Rules + scoring** | HTML parse, rule engine, normalisation, deterministic scoring with weights from PRD FR-13 | fixture pages produce stable findings and a reproducible score |
+| **6 · Jobs** | Redis + BullMQ, worker lifecycle, stage reporting, partial results | a real site is audited end to end without holding an HTTP request open |
+| **7 · AI + PDF** | evidence-only explanations, schema validation, PDF from stored snapshot | AI failure leaves deterministic findings intact; PDF renders from the snapshot alone |
 
-Phases 1 and 2 were implemented before this plan was written; see the note at the end.
+Phases 0–3 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
+the end.
 
 ### Phase numbering changed
 
@@ -30,13 +32,18 @@ Nothing crawls yet, so the reordering is safe: risk #1 below is about a fetcher 
 gaps, and no fetcher exists. The next phase still has to close redirects, the connected address
 and response size before anything is allowed to fetch a real site.
 
+Phase 3 then arrived as the interface foundation, which moved the fetcher again. Same argument:
+a UI that cannot start a scan cannot leak a scan.
+
 ## What exists now
 
 - `apps/api` — Express process: `GET /health`, a contract probe at
   `POST /api/v1/audits/validate` (validates, queues nothing), the error envelope, bearer-token
   verification, `GET /api/v1/me`, `GET|PATCH /api/v1/profile` and `GET /api/v1/audits/:id`.
-- `apps/web` — sign in, sign up, password reset, and a protected dashboard that calls the API
-  with the session's own token. No audit screens: there is nothing to list.
+- `apps/web` — Tailwind + React: landing page, sign in / sign up / password reset, and a protected
+  shell (overview, audit history, settings) that calls the API with the session's own token.
+  Settings writes the profile; everything else shows an empty state because there is no data.
+  See [`docs/UI.md`](UI.md).
 - `apps/worker` — prints that no queue exists and exits 0.
 - `supabase/migrations/` — schema for the seven tables, profile provisioning, RLS policies.
 - `tests/support/database.ts` — PGlite harness that runs those migrations unmodified
@@ -68,6 +75,21 @@ and response size before anything is allowed to fetch a real site.
 6. **Scope creep.** The non-goals list in PRD §4 is the guard. Anything not on it waits.
 7. **Bus factor of one.** Migrations, env docs and the runbook stay in the repo so the project
    survives a handover.
+
+## Decisions made in Phase 3
+
+| Decision | Why |
+|---|---|
+| Kept `#53B107`, changed the text on it to charcoal | White on that green is 2.74:1 and Design.md §7 requires contrast. The brand colour is the thing clients chose; the text colour was never specified |
+| Split amber and red into fill and text variants | White on `#D97706` is 3.19:1 — usable for an icon, not for a badge's word. A tinted background with a dark foreground keeps both readable |
+| Added a `line-strong` border for controls | `#E5E7EB` is 1.24:1, fine for a separator and not fine for the edge of an input (WCAG 1.4.11 needs 3:1) |
+| Contrast is a test, not a review comment | `design-tokens.test.ts` recomputes every pair from the shipped CSS; a palette edit that breaks one fails the build |
+| Tailwind 4, deferred since Phase 0 | There is a UI to style now. Tokens live in `@theme`, so a utility and a CSS variable cannot disagree |
+| No "New audit" item, no history rows, no metric cards | Design.md §11 forbids dead controls and §3 forbids showing unfinished sections. Empty states say what is true |
+| The landing page checks addresses with its own small function | `packages/validation` imports `node:net`/`node:dns`; importing it into the browser had Vite externalise both modules and would have broken the CTA at runtime |
+| Component tests in jsdom, per file | The database and API suites stay in the faster Node environment; only DOM tests pay for jsdom |
+| No `jest-dom`, no snapshots | Roles, names and states are what a user meets; a snapshot of class names breaks on every restyle |
+| No `react-hook-form` yet | Every form here has 1–5 fields and a small amount of validation; the dependency earns its place when a form does not fit on one screen |
 
 ## Decisions made in Phase 2
 
@@ -106,10 +128,10 @@ and response size before anything is allowed to fetch a real site.
 
 - `index.html` at the repo root is a pre-spec design prototype. It does not follow
   `docs/Design.md` and it is not part of the app. Keep, rebuild, or delete?
-- `docs/Design.md` §2 primary `#53B107` measures 2.74:1 with white text, below the 4.5:1 that
-  the same document requires in §7. Additive fix proposed: charcoal text on the green fill
-  (6.00:1) plus darker text variants for warning/success. Needs a decision before the first UI
-  phase.
+- ~~`docs/Design.md` §2 primary `#53B107` measures 2.74:1 with white text.~~ **Resolved in Phase 3**
+  by instruction ("prioritise accessible contrast"): the green stays, the text on it becomes
+  charcoal (6.00:1), status colours gained text-safe variants. Recorded in `docs/UI.md` §1 and
+  enforced by `tests/unit/design-tokens.test.ts`.
 - Redis is not provisioned; `docker-compose.yml` (TRD §3) is still not created. Supabase can be
   run with the CLI (`supabase start`), which needs Docker.
 - The Supabase CLI has not been run against these migrations, and the Auth endpoints
