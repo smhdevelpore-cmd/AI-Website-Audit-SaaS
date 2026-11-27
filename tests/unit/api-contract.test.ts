@@ -31,6 +31,64 @@ function fakeResponse(captured: Captured): Response {
   return response as unknown as Response;
 }
 
+describe("server-side failures", () => {
+  it("logs the cause of a 5xx and still sends nothing but a sentence", () => {
+    const captured: Captured = {};
+    const logged: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => logged.push(args);
+
+    try {
+      errorHandler(
+        new AppError("internal_error", "We could not reach the database.", {
+          logContext: {
+            operation: "profiles.select",
+            databaseMessage: "permission denied for table profiles",
+          },
+        }),
+        {} as Request,
+        fakeResponse(captured),
+        () => undefined,
+      );
+    } finally {
+      console.error = original;
+    }
+
+    // The log has the operation and the database's own words...
+    expect(JSON.stringify(logged)).toContain("profiles.select");
+    expect(JSON.stringify(logged)).toContain("permission denied");
+
+    // ...the response has neither.
+    expect(captured.status).toBe(500);
+    const body = JSON.stringify(captured.body);
+    expect(body).not.toContain("profiles.select");
+    expect(body).not.toContain("permission denied");
+    expect(captured.body).toEqual({
+      success: false,
+      error: { code: "internal_error", message: "We could not reach the database." },
+    });
+  });
+
+  it("does not log a 4xx as a server fault", () => {
+    const captured: Captured = {};
+    const logged: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => logged.push(args);
+    try {
+      errorHandler(
+        new AppError("not_found", "No audit with that id.", { logContext: { auditId: "x" } }),
+        {} as Request,
+        fakeResponse(captured),
+        () => undefined,
+      );
+    } finally {
+      console.error = original;
+    }
+    expect(logged).toHaveLength(0);
+    expect(captured.status).toBe(404);
+  });
+});
+
 describe("error contract", () => {
   it("maps a code to one status, not to whatever a route felt like", () => {
     expect(httpStatusFor("validation_failed")).toBe(400);

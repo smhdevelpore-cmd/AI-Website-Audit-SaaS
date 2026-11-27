@@ -1,20 +1,49 @@
-import { config } from "./config.js";
-
 /**
- * Phase 1 scaffold. Proves validated browser configuration reaches the app; it is not a
- * screen and deliberately has no styling decisions in it. The interface arrives in a later
- * phase, designed against docs/Design.md.
+ * Routes. Four screens are public (sign in, sign up, and the two halves of password recovery);
+ * everything else sits behind `ProtectedRoute`.
  */
-export function App() {
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+
+import { AuthProvider } from "./auth/AuthProvider.js";
+import { ProtectedRoute } from "./auth/ProtectedRoute.js";
+import { Dashboard } from "./pages/Dashboard.js";
+import { ForgotPassword } from "./pages/ForgotPassword.js";
+import { Login } from "./pages/Login.js";
+import { ResetPassword } from "./pages/ResetPassword.js";
+import { Signup } from "./pages/Signup.js";
+
+function NotFound() {
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", lineHeight: 1.6 }}>
-      <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.5rem" }}>Site Audit web scaffold</h1>
-      <p style={{ margin: 0, maxWidth: "60ch" }}>
-        The app shell builds, and its configuration validated. No audit screens exist yet.
-      </p>
-      <p style={{ margin: "0.5rem 0 0", maxWidth: "60ch", color: "#495057" }}>
-        API base URL: {config.VITE_API_BASE_URL}
+    <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
+      <h1 style={{ fontSize: "1.25rem" }}>Page not found</h1>
+      <p>
+        <a href="/dashboard">Go to your account</a>
       </p>
     </main>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

@@ -12,6 +12,7 @@ const production = {
   SUPABASE_ANON_KEY: "anon-key",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-secret-value",
   REDIS_URL: "redis://localhost:6379",
+  SUPABASE_JWT_SECRET: "a-production-jwt-secret-of-at-least-32-characters",
 };
 
 describe("api environment", () => {
@@ -56,6 +57,25 @@ describe("api environment", () => {
       expect(variables).toContain("SUPABASE_SERVICE_ROLE_KEY");
       expect(variables).toContain("REDIS_URL");
     }
+  });
+
+  it("refuses a production API that could not verify a single token", () => {
+    const withoutKeys = { ...production, SUPABASE_JWT_SECRET: undefined, SUPABASE_JWKS_URL: undefined };
+    expect(() => loadApiEnv(withoutKeys)).toThrow(EnvError);
+
+    // Either key material is enough: a legacy shared secret, or a published JWKS.
+    const jwks = loadApiEnv({
+      ...withoutKeys,
+      SUPABASE_JWKS_URL: "https://project.supabase.co/auth/v1/.well-known/jwks.json",
+    });
+    expect(jwks.SUPABASE_JWKS_URL).toContain("jwks.json");
+
+    const shared = loadApiEnv({ ...withoutKeys, SUPABASE_JWT_SECRET: "y".repeat(40) });
+    expect(shared.NODE_ENV).toBe("production");
+  });
+
+  it("rejects a JWT secret too short to be one", () => {
+    expect(() => loadApiEnv({ SUPABASE_JWT_SECRET: "short" })).toThrow(EnvError);
   });
 
   it("accepts a complete production environment", () => {

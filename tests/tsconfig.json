@@ -17,5 +17,5 @@
       "@siteaudit/config": ["../packages/config/src/index.ts"]
     }
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts", "../apps/api/src/http/types.d.ts"]
 }

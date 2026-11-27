@@ -12,8 +12,11 @@
   },
   "dependencies": {
     "@siteaudit/config": "0.0.0",
+    "@siteaudit/shared-types": "0.0.0",
+    "@supabase/supabase-js": "^2.119.2",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.7"
   },
   "devDependencies": {
     "@types/react": "^19.3.3",

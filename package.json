@@ -21,6 +21,7 @@
     "clean": "rm -rf apps/*/dist packages/*/dist apps/*/tsconfig.tsbuildinfo packages/*/tsconfig.tsbuildinfo packages/*/tsconfig.test.tsbuildinfo"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.6.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.7",
     "eslint": "^10.16.0",

@@ -16,6 +16,15 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, nex
   }
 
   if (error instanceof AppError) {
+    // A 5xx is our fault: log why (never the client's data), so a generic sentence in the
+    // response does not mean a silent failure in the logs.
+    if (error.status >= 500) {
+      console.error("[api] request failed", {
+        code: error.code,
+        message: error.message,
+        ...error.logContext,
+      });
+    }
     response.status(error.status).json(toErrorBody(error));
     return;
   }

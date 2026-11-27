@@ -53,6 +53,21 @@ const supabaseServer = {
   SUPABASE_SERVICE_ROLE_KEY: optionalText,
 };
 
+/**
+ * How the API decides whether a bearer token is genuine. Supabase projects have either a
+ * legacy shared JWT secret (HS256) or an asymmetric signing key published as a JWKS document.
+ * At least one is required in production: an API that cannot verify a token cannot protect a
+ * single row.
+ */
+const supabaseAuth = {
+  SUPABASE_JWT_SECRET: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().trim().min(32).optional(),
+  ),
+  SUPABASE_JWKS_URL: optionalUrl,
+  SUPABASE_JWT_ISSUER: optionalText,
+};
+
 export const apiEnvSchema = z
   .object({
     NODE_ENV: nodeEnvSchema,
@@ -70,6 +85,7 @@ export const apiEnvSchema = z
       .max(200)
       .default("SiteAuditBot/0.1 (+https://example.com/bot)"),
     ...supabaseServer,
+    ...supabaseAuth,
     ...auditLimits,
   })
   .superRefine((env, ctx) => {
@@ -83,6 +99,13 @@ export const apiEnvSchema = z
       if (env[key] === undefined) {
         ctx.addIssue({ code: "custom", path: [key], message: `${key} is required in production.` });
       }
+    }
+    if (env.SUPABASE_JWT_SECRET === undefined && env.SUPABASE_JWKS_URL === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SUPABASE_JWT_SECRET"],
+        message: "Set SUPABASE_JWT_SECRET or SUPABASE_JWKS_URL: without one, no token can be verified.",
+      });
     }
   });
 

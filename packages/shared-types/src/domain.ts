@@ -56,6 +56,25 @@ export type Difficulty = (typeof DIFFICULTIES)[number];
 export const PRIORITIES = ["critical", "high", "medium", "low"] as const;
 export type Priority = (typeof PRIORITIES)[number];
 
+/** Units a metric can carry. `none` is a bare count or flag, not a missing unit. */
+export const METRIC_UNITS = ["ms", "score", "ratio", "count", "bytes", "none"] as const;
+export type MetricUnit = (typeof METRIC_UNITS)[number];
+
+/** Where a measurement came from. A provider number is never presented as our own check. */
+export const METRIC_SOURCES = ["pagespeed", "crawler", "rule"] as const;
+export type MetricSource = (typeof METRIC_SOURCES)[number];
+
+/** Provider status; a missing number keeps the reason it is missing. */
+export const METRIC_STATUSES = ["ok", "unavailable", "partial"] as const;
+export type MetricStatus = (typeof METRIC_STATUSES)[number];
+
+export const REPORT_STATUSES = ["queued", "rendering", "ready", "failed"] as const;
+export type ReportStatus = (typeof REPORT_STATUSES)[number];
+
+/** What a usage record meters (TRD §14). Append-only: a meter that can be edited is not one. */
+export const USAGE_KINDS = ["audit", "page", "provider_call", "ai_token", "report", "storage_byte"] as const;
+export type UsageKind = (typeof USAGE_KINDS)[number];
+
 export interface Finding {
   id: string;
   auditId: string;
@@ -82,11 +101,11 @@ export interface Metric {
   key: string;
   label: string;
   value: number | null;
-  unit: "ms" | "score" | "ratio" | "count" | "bytes" | "none";
+  unit: MetricUnit;
   /** Where it came from: PageSpeed, our own crawl, or a deterministic rule. */
-  source: "pagespeed" | "crawler" | "rule";
+  source: MetricSource;
   /** Provider status, so a missing number keeps its reason. */
-  status: "ok" | "unavailable" | "partial";
+  status: MetricStatus;
 }
 
 export interface ScanSummary {
