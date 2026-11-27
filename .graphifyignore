@@ -1,0 +1,19 @@
+# What the code graph must not index. Measured: ignoring these turned a graph of
+# minified-JS noise into one whose top hubs are the real architecture.
+node_modules/
+.next/
+.nuxt/
+dist/
+build/
+out/
+coverage/
+.venv/
+graphify-out/
+*.min.js
+*.min.css
+*.bundle.js
+*.generated.*
+**/__snapshots__/**
+**/fixtures/**
+package-lock.json
+pnpm-lock.yaml

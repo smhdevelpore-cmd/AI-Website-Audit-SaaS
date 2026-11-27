@@ -128,8 +128,24 @@ Line one of our stylesheet records the decisions, so the next session inherits r
 than vibes:
 
 ```css
-/* audit-ui · v0 · genre modern-minimal · surface: tinted paper · accent: one hue, ~4% · display: [face] · body: [face] · waive 64 · the diff view is code, mono is the material */
+/* Hallmark · Redline v0 · genre modern-minimal · surface: tinted paper · accent: one hue, ~4% · display: [face] · body: [face] · waive 64 · the diff view is code, mono is the material */
 ```
 
 Add a `waive`, `answered` or `dismissed` line for each departure, naming the gate, the evidence
 and the reason. A fabricated pass is itself slop.
+
+The literal word `Hallmark` must start that comment: the linter keys on it, and it is also
+honest credit for the gate system we are using. Keep your project name after it.
+
+## The linter
+
+`tools/sloplint/` is the upstream checker, vendored unchanged (MIT, zero dependencies, Node 18+).
+The floor is only a floor while something can fail you against it:
+
+```bash
+node tools/sloplint/sloplint.mjs index.html --genre modern-minimal
+```
+
+`--render` (screenshots, eight widths) needs a headless Chrome; the static tier does not, and it
+catches most of the Floor. Fix every `FAIL`, fix or waive every `REFLEX`, answer every `WARN`.
+`REFLEX` and `WARN` ids map to the gate numbers in the upstream `references/gates.md`.

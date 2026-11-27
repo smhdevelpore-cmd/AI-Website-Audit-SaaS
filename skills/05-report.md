@@ -74,6 +74,18 @@ plausible number:
 | `confidence` | `observed` · `inferred` · `untestable` — never silently upgraded |
 | `score_impact` | only if the score is deterministic from it. A score we cannot reproduce is invented |
 
+The three confidence words are graphify's provenance tags in plain English, and the field names
+come from its schema ([04](04-code-graph.md)) so a finding and a graph edge are the same object:
+
+| Ours (a user reads it) | graphify (a tool writes it) | Means |
+|---|---|---|
+| `observed` | `EXTRACTED` | stated by the thing itself: measured, in the source |
+| `inferred` | `INFERRED` + `confidence_score` | derived by a rule or resolver. Keep the score |
+| `untestable` | `AMBIGUOUS` | candidates exist, we cannot separate them. Say so |
+
+A whole report is as trustworthy as its weakest hop. If most findings are `inferred`, the audit
+is a rumour with a score attached, and the report must say that rather than average it away.
+
 ## Honesty boundaries, written down once
 
 - No fabricated pass. If a check did not run, it reports `not checked`, not green.

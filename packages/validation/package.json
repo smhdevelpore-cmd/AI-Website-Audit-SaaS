@@ -1,0 +1,23 @@
+{
+  "name": "@siteaudit/validation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo tsconfig.test.tsbuildinfo"
+  },
+  "dependencies": {
+    "zod": "^4.6.7",
+    "@siteaudit/shared-types": "0.0.0"
+  }
+}

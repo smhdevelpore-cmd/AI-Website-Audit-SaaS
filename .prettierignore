@@ -1,0 +1,20 @@
+# Prose is written deliberately, and the specification pack must stay byte-identical
+# to the source documents. Prettier's job here is code style, not reflowing sentences.
+*.md
+docs/
+
+# A pre-spec prototype awaiting a decision (docs/PLAN.md, open questions). Reformatting it
+# would bury that decision in a 1,400-line diff.
+index.html
+
+# Vendored third-party code.
+tools/
+.agents/
+
+# Derived.
+node_modules/
+dist/
+package-lock.json
+coverage/
+graphify-out/
+skills/

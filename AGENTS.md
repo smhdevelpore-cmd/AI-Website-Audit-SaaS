@@ -12,6 +12,18 @@ house rules. Read this file first, then only the skill file the task needs.
 | [`skills/05-report.md`](skills/05-report.md) | ponytail-audit + ours | The shape of every finding we hand a user |
 | [`skills/06-checklist.md`](skills/06-checklist.md) | all four | The one list to run before saying "done" |
 
+## Precedence
+
+`docs/PRD.md`, `docs/Design.md`, `docs/TRD.md` and `docs/ARD.md` are the source of truth. Where
+a house skill disagrees with them, the document wins and the skill is the thing to fix.
+
+Two documents outrank everything, including each other's detail: **measurements are
+authoritative** (nothing may invent a metric, finding, score or certainty) and **the target site
+is untrusted** (nothing fetches a URL before `packages/validation` says it is safe).
+
+A conflict between two requirements inside the docs is not something to resolve silently. Stop,
+describe it with evidence, and ask.
+
 ## The product we are building
 
 AI-Website-Audit-SaaS: a person pastes a URL and gets a ranked, plain-English audit of
@@ -28,9 +40,12 @@ That makes the four skills load-bearing, not decorative:
 
 1. **Scope before code.** Name every place the change must reach. That is 01 § Scope.
 2. **Find before build.** Is it already here? Installed? In the platform? 01 § The smallest complete change.
-3. **Build.** UI work loads 02 and 03 first. Never design from memory.
-4. **Check.** 06, in full.
-5. **Report.** 05. Name what you skipped and what you did not check.
+3. **Blast radius before edit.** Changing something shared, or working in a repo you did not
+   write? `.venv/bin/graphify affected "<thing>"` first — it names what breaks, by file and
+   line. One symbol you already know: `grep` is faster, so grep. 04.
+4. **Build.** UI work loads 02 and 03 first. Never design from memory.
+5. **Check.** 06, in full.
+6. **Report.** 05. Name what you skipped and what you did not check.
 
 ## When two skills disagree
 
@@ -44,6 +59,8 @@ Settled once, here, so no future session re-litigates it:
   preference meets a measurable one, the measurable one wins and the style adapts.
 - **04 never overrules a file read.** A graph edge is a map, not the code. Open the file
   before changing it. When the question is about the graph itself, the graph is not evidence.
+  The graph is installed, not aspirational: upstream skill at `.agents/skills/graphify/`, CLI at
+  `.venv/bin/graphify`, `graphify-out/` gitignored.
 - **05 is never shortened.** An audit is the thing the user asked for, so it ships in full,
   however lazy the code behind it is.
 
@@ -54,6 +71,9 @@ Settled once, here, so no future session re-litigates it:
 - Every audit finding is numbered across the whole report, so a user can say "fix 2 and 5".
 - No invented facts anywhere: no metric, quote, logo, screenshot or testimonial a user did
   not give us. In the app copy and in the reports we generate. This one is a Floor.
+- Every finding and every graph edge carries provenance: `EXTRACTED` (measured, in the source),
+  `INFERRED` (derived, keep the score), `AMBIGUOUS` (could not tell). Same three words in the
+  JSON and in the sentence a customer reads. Never upgraded in the retelling.
 
 ## Keeping the contract alive
 

@@ -17,6 +17,8 @@ One pass, all four skills. Skip a line only when it cannot apply, and say so in 
 - [ ] Non-trivial logic has one test that fails when it breaks.
 - [ ] Every deliberate shortcut says `shortcut: <limit>, <when to upgrade>`.
 - [ ] Empty, zero, one, many, unauthorised, offline and slow are answered.
+- [ ] Shared thing changed → `.venv/bin/graphify affected "<thing>"` was run, and the files it
+      named were read. Nothing shared changed → this line is skipped and said so.
 
 ## The floor
 
@@ -28,7 +30,9 @@ One pass, all four skills. Skip a line only when it cannot apply, and say so in 
 - [ ] No eyebrow, no tracked-caps label, no middle-dot meta, no glued arrow, no status dot.
 - [ ] No purple-to-blue gradient, no card in a card, no emoji icon.
 - [ ] Hero legible at 1280×800; ~80 words a screen; `dvh`/`svh`; container capped.
-- [ ] The stamp is line one of the stylesheet, with any waiver stated.
+- [ ] The stamp is line one of the stylesheet, starts with `Hallmark`, and states any waiver.
+- [ ] `node tools/sloplint/sloplint.mjs <file> --genre <genre>` is clean: 0 FAIL, 0 open REFLEX.
+- [ ] Contrast computed, not eyeballed. Print the ratios.
 
 ## Interface order
 
@@ -61,3 +65,7 @@ One pass, all four skills. Skip a line only when it cannot apply, and say so in 
 - [ ] The reply names one thing I skipped and one risk the user must know.
 - [ ] The `Not checked:` line is true.
 - [ ] The rule that would have prevented this bug is in these files, if one exists.
+- [ ] Every relative link in the docs resolves from the file that contains it, and every command
+      a doc tells you to run actually runs. (This check is here because it caught a broken
+      `.agents/…` link and would have caught five more.)
+- [ ] No doc states a number a sibling doc contradicts: findings cap, priority order, limits.

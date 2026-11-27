@@ -1,9 +1,14 @@
 # skills/
 
 Four external design and engineering skills, read once, distilled, and rewritten as the rules
-this repo works by. Not vendored: none of the four repos is copied in. If you want the full
-upstream material — 50 themes, 141 UX guidelines, the entire gate table, the graph builder —
-install it from source.
+this repo works by. Mostly distilled rather than vendored: if you want the full upstream
+material — 50 themes, 141 UX guidelines, the entire gate table — install it from source.
+
+The exception is graphify, which is **installed for real** and not merely described: the
+upstream skill sits unchanged at [`.agents/skills/graphify/`](../.agents/skills/graphify/SKILL.md)
+(Apache-2.0), the CLI runs from `.venv/`, and [04](04-code-graph.md) is the house version with
+the numbers we measured. Install it in one line: `python3 -m venv .venv && .venv/bin/pip
+install -q graphifyy`.
 
 | File | Came from | Licence |
 |---|---|---|
@@ -33,7 +38,10 @@ breakpoints, line lengths, line heights) that turn an opinion into a check.
 
 **Graphify** — the answer to "how do I understand a codebase I did not write". Build the map
 when the map earns its keep, query instead of grepping the world, and tag every edge as
-extracted or inferred — the same honesty rule our audit reports need.
+extracted or inferred — the same honesty rule our audit reports need. The one operational
+lesson worth repeating: `.graphifyignore` is not housekeeping. Ignoring minified bundles and
+vendored copies took one graph from 5,436 nodes topped by `tn` and `js` to 2,383 nodes topped by
+the real architecture. What you exclude decides whether the map is insight or noise.
 
 ## The one idea lifted from all four
 

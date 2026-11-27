@@ -1,0 +1,18 @@
+# Derived data and local tooling. Never commit any of this.
+.venv/
+graphify-out/
+*.tsbuildinfo
+# build output that must never sit next to its source
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts.map
+__pycache__/
+*.pyc
+node_modules/
+.next/
+dist/
+build/
+.env
+.env.*
+!.env.example
