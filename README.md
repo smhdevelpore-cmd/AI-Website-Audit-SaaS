@@ -45,7 +45,7 @@ starts without any of them and serves `GET /health`.
 | `npm run ci` | all of the above, in the order CI runs them |
 | `npm run clean` | removes every `dist/` and `.tsbuildinfo` |
 
-Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 219 tests passing,
+Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 228 tests passing,
 build 0 across all eight workspaces.
 
 ## Layout

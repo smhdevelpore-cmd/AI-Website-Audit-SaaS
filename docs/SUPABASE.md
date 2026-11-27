@@ -5,9 +5,10 @@ fetches a website or runs a scan.
 
 - Schema: `supabase/migrations/`
 - API auth: `apps/api/src/auth/`, `apps/api/src/data/`
-- Browser auth: `apps/web/src/auth/`
+- Browser auth: `apps/web/src/auth/` (`AuthProvider`, `operations.ts`, `ProtectedRoute`)
 - Tests: `tests/integration/schema-migrations.test.ts`, `rls.test.ts`, `api-auth.test.ts`,
-  `supabase-adapter.test.ts`, `tests/unit/auth-token.test.ts`, `web-auth.test.ts`
+  `supabase-adapter.test.ts`, `tests/unit/auth-token.test.ts`, `web-auth.test.ts`,
+  `web-auth-operations.test.ts`
 
 ## 1. What the database contains
 
@@ -159,7 +160,8 @@ There is no create endpoint: creating an audit means enqueuing a job, and no que
 1. `supabase start` and `supabase db reset` on a machine with Docker, confirming the CLI accepts
    the migration files.
 2. Sign up, confirm the email, sign in, sign out, reset the password — through the real Auth
-   service, in a browser.
+   service, in a browser. The calls the screens make are tested against a fake client
+   (`web-auth-operations.test.ts`); the service answering them is not.
 3. Two real accounts, one audit each, signed in as each in turn: the other's audit must 404.
 4. A hosted project's JWKS URL, to exercise the asymmetric path against the real endpoint (the
    key resolver is tested with a locally generated key pair; the HTTPS fetch is not).

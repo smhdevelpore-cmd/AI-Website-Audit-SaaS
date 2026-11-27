@@ -7,11 +7,12 @@
  * `VITE_` variable, and `packages/config` refuses a build that contains one.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { config } from "../config.js";
-import { describeAuthError, type AuthStatus } from "./session.js";
+import { createAuthOperations, type AuthOperations } from "./operations.js";
+import type { AuthStatus } from "./session.js";
 
 export interface AuthContextValue {
   readonly status: AuthStatus;
@@ -88,11 +89,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [client]);
 
-  const requireClient = useCallback((): SupabaseClient => {
+  /**
+   * The operations themselves live in `operations.ts`, where they are tested. A build with no
+   * Supabase configuration gets a set of failures that say so, rather than a null check at
+   * every call site.
+   */
+  const operations = useMemo<AuthOperations>(() => {
     if (client === null) {
-      throw new Error("Sign-in is not configured for this build.");
+      const unavailable = (): never => {
+        throw new Error("Sign-in is not configured for this build.");
+      };
+      return {
+        signIn: async () => unavailable(),
+        signUp: async () => unavailable(),
+        signOut: async () => unavailable(),
+        requestPasswordReset: async () => unavailable(),
+        updatePassword: async () => unavailable(),
+      };
     }
-    return client;
+    return createAuthOperations(client, window.location.origin);
   }, [client]);
 
   const value = useMemo<AuthContextValue>(
@@ -101,40 +116,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       accessToken,
 
-      async signIn(address, password) {
-        const { error } = await requireClient().auth.signInWithPassword({ email: address, password });
-        if (error !== null) throw new Error(describeAuthError(error.message));
-      },
-
-      async signUp(address, password, name) {
-        const { data, error } = await requireClient().auth.signUp({
-          email: address,
-          password,
-          options: { data: { name } },
-        });
-        if (error !== null) throw new Error(describeAuthError(error.message));
-        // With email confirmation on, Supabase returns a user but no session.
-        return { needsConfirmation: data.session === null };
-      },
-
-      async signOut() {
-        const { error } = await requireClient().auth.signOut();
-        if (error !== null) throw new Error(describeAuthError(error.message));
-      },
-
-      async requestPasswordReset(address) {
-        const { error } = await requireClient().auth.resetPasswordForEmail(address, {
-          redirectTo: `${window.location.origin}/reset-password`,
-        });
-        if (error !== null) throw new Error(describeAuthError(error.message));
-      },
-
-      async updatePassword(password) {
-        const { error } = await requireClient().auth.updateUser({ password });
-        if (error !== null) throw new Error(describeAuthError(error.message));
-      },
+      signIn: (address, password) => operations.signIn(address, password),
+      signUp: (address, password, name) => operations.signUp(address, password, name),
+      signOut: () => operations.signOut(),
+      requestPasswordReset: (address) => operations.requestPasswordReset(address),
+      updatePassword: (password) => operations.updatePassword(password),
     }),
-    [status, email, accessToken, requireClient],
+    [status, email, accessToken, operations],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
