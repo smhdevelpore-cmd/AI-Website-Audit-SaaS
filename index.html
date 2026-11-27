@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redline, an audit you can argue with</title>
+<meta name="description" content="A website audit where every finding shows what was measured, where, and how sure we are.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Instrument+Serif&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Hallmark · Redline v0 · genre modern-minimal · surface: cool paper, ink at hue 258 · accent: one vermilion, severity only, about 3% · display: Instrument Serif · body: Instrument Sans · data: IBM Plex Mono, numbers only · holds still, no reveal · pre-emit critique P4 H5 E4 S5 R4 V4 · weakest: E, the specimen needed real measured values, so it carries 3.1:1 and 4.5:1 rather than round numbers · 0 waivers */
+:root {
+  --paper: oklch(97.4% 0.004 250);
+  --paper-2: oklch(99.2% 0.002 250);
+  --ink: oklch(20% 0.014 258);
+  --ink-2: oklch(44% 0.012 258);
+  --rule: oklch(90% 0.006 258);
+  --rule-2: oklch(84% 0.008 258);
+  --signal: oklch(48% 0.17 30);
+  --ink-hover: oklch(32% 0.016 258);
+  --ink-active: oklch(26% 0.014 258);
+  --ink-3: oklch(54% 0.01 258);
+  --rule-strong: oklch(70% 0.01 258);
+
+  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --step--1: 0.8125rem;
+  --step-0: 1.0625rem;
+  --step-1: 1.25rem;
+  --step-2: clamp(1.6rem, 3vw, 2.15rem);
+
+  --space: clamp(1.25rem, 4vw, 3rem);
+  --gap: clamp(1.5rem, 4vw, 2.75rem);
+  --radius: 2px;
+  --container: 1080px;
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html {
+  overflow-x: clip;
+  scroll-padding-top: 5.5rem;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  overflow-x: clip;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--ink); color: var(--paper); }
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  overflow-wrap: break-word;
+  min-width: 0;
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2.75rem, 6.4vw, 4.5rem);
+  line-height: 1.04;
+  text-wrap: balance;
+  max-width: 14ch;
+}
+
+h2 {
+  font-size: var(--step-2);
+  line-height: 1.15;
+  margin-bottom: 0.75rem;
+}
+
+h3 { font-size: var(--step-1); line-height: 1.25; }
+
+p { margin: 0 0 1rem; max-width: 62ch; }
+p:last-child { margin-bottom: 0; }
+
+a { color: inherit; text-underline-offset: 0.22em; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: var(--radius);
+}
+
+.container {
+  width: 100%;
+  max-width: var(--container);
+  margin-inline: auto;
+  padding-inline: var(--space);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95em;
+  letter-spacing: -0.01em;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 0.75rem 1.25rem;
+  z-index: 40;
+}
+.skip:focus { left: 1rem; top: 1rem; }
+
+/* mast */
+.mast {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+
+.mast__in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  height: 4.25rem;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.mast__nav {
+  display: flex;
+  gap: clamp(1rem, 3vw, 1.75rem);
+  font-size: var(--step--1);
+}
+
+.mast__nav a { text-decoration: none; color: var(--ink-2); }
+.mast__nav a:hover,
+.mast__nav a:focus-visible { color: var(--ink); text-decoration: underline; }
+
+/* hero */
+.hero { border-bottom: 2px solid var(--ink); }
+
+.hero__in {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: var(--gap);
+  align-items: start;
+  padding-block: clamp(2.5rem, 6vw, 4.5rem);
+}
+
+.lede {
+  font-size: clamp(1.0625rem, 1.6vw, 1.2rem);
+  color: var(--ink-2);
+  max-width: 34ch;
+  margin-top: 1.25rem;
+}
+
+/* form */
+.audit-form { margin-top: clamp(1.75rem, 3vw, 2.5rem); max-width: 30rem; }
+
+.audit-form label {
+  display: block;
+  font-size: var(--step--1);
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.audit-form__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.audit-form input {
+  min-width: 0;
+  min-height: 1lh;
+  height: 3.25rem;
+  padding: 0 1rem;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--radius);
+}
+.audit-form input::placeholder { color: var(--ink-3); }
+.audit-form input:hover { border-color: var(--rule-strong); }
+.audit-form input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-color: var(--ink);
+}
+.audit-form input[aria-invalid="true"] { border-color: var(--signal); }
+
+.audit-form button {
+  height: 3.25rem;
+  padding: 0 1.5rem;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+.audit-form button:hover { background: var(--ink-hover); }
+.audit-form button:active { background: var(--ink-active); }
+.audit-form button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.audit-form button:disabled:hover { background: var(--ink); }
+
+.note {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  margin-top: 0.75rem;
+  min-height: 1lh;
+}
+
+.status {
+  font-size: var(--step--1);
+  margin-top: 0.25rem;
+  min-height: 1lh;
+}
+.status:not(:empty) {
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--signal);
+}
+.status[data-tone="quiet"] { border-left-color: var(--rule-2); }
+
+/* specimen */
+.specimen { margin: 0; min-width: 0; }
+
+.finding {
+  background: var(--paper-2);
+  border: 1px solid var(--rule-2);
+  border-top: 3px solid var(--signal);
+  border-radius: var(--radius);
+  padding: clamp(1.25rem, 3vw, 1.75rem);
+  box-shadow: 5px 5px 0 var(--rule);
+}
+
+.finding__sev {
+  font-size: var(--step--1);
+  font-weight: 600;
+  color: var(--signal);
+  margin-bottom: 0.625rem;
+}
+
+.finding__title { max-width: 22ch; margin-bottom: 0.875rem; }
+
+.finding__measure {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.finding__parts {
+  margin: 1rem 0 0;
+  display: grid;
+  gap: 0.875rem;
+}
+
+.finding__parts dt {
+  font-size: var(--step--1);
+  font-weight: 600;
+  margin-bottom: 0.125rem;
+}
+
+.finding__parts dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.specimen figcaption {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  margin-top: 0.875rem;
+  max-width: 34ch;
+}
+
+/* sections */
+.section { padding-block: clamp(3rem, 7vw, 5rem); }
+
+.lead {
+  color: var(--ink-2);
+  max-width: 46ch;
+  margin-bottom: clamp(1.75rem, 3vw, 2.5rem);
+}
+
+/* table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+caption {
+  text-align: left;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  padding-bottom: 0.75rem;
+}
+
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.875rem 1rem 0.875rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+thead th {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--step--1);
+  white-space: nowrap;
+  border-bottom: 2px solid var(--ink);
+}
+
+tbody tr:last-child th,
+tbody tr:last-child td { border-bottom: none; }
+
+tbody th { font-weight: 500; }
+td { color: var(--ink-2); }
+td:last-child { color: var(--ink); }
+
+/* confidence */
+.confidence { border-top: 1px solid var(--rule-2); }
+
+.tags {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap);
+  margin: 0;
+}
+
+.tags__item { border-top: 2px solid var(--ink); padding-top: 1rem; }
+.tags dt { font-weight: 600; margin-bottom: 0.375rem; }
+.tags dd { margin: 0; color: var(--ink-2); font-size: 0.9375rem; max-width: 34ch; }
+
+/* footer */
+.foot { border-top: 2px solid var(--ink); padding-block: clamp(2rem, 4vw, 3rem); }
+
+.foot__in {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  gap: var(--gap);
+  align-items: start;
+}
+
+.foot__mark {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.foot__state {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  max-width: 52ch;
+}
+
+.foot__nav {
+  grid-column: 2;
+  display: flex;
+  gap: 1.25rem;
+  font-size: var(--step--1);
+  margin-top: 1rem;
+}
+.foot__nav a { color: var(--ink-2); }
+
+@media (max-width: 900px) {
+  .hero__in,
+  .foot__in { grid-template-columns: minmax(0, 1fr); }
+  .foot__nav { grid-column: 1; }
+  .tags { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
+  h1 { max-width: 18ch; }
+}
+
+@media (max-width: 640px) {
+  .audit-form__row { grid-template-columns: minmax(0, 1fr); }
+  .audit-form button { width: 100%; }
+  .mast__nav a:first-child { display: none; }
+
+  table, tbody, tr, th, td { display: block; }
+  caption { padding-bottom: 1rem; }
+  thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  tbody tr {
+    border-bottom: 1px solid var(--rule-2);
+    padding-block: 1rem;
+  }
+  tbody th {
+    font-weight: 600;
+    font-size: 1rem;
+    padding: 0 0 0.5rem;
+    border-bottom: none;
+  }
+  tbody td {
+    border-bottom: none;
+    padding: 0.125rem 0;
+    display: grid;
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+    gap: 1rem;
+  }
+  tbody td::before {
+    content: attr(data-label);
+    font-size: var(--step--1);
+    color: var(--ink-2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+
+<header class="mast">
+  <div class="container mast__in">
+    <a class="wordmark" href="/" aria-label="Redline, home">Redline</a>
+    <nav class="mast__nav" aria-label="Primary">
+      <a href="#checks">What it reads</a>
+      <a href="#confidence">How sure</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero" aria-labelledby="hero-head">
+    <div class="container hero__in">
+      <div>
+        <h1 id="hero-head">An audit you can argue with.</h1>
+        <p class="lede">Every finding shows what was measured, where, and how sure we are.</p>
+
+        <form class="audit-form" id="audit-form" data-endpoint="" novalidate>
+          <label for="site-url">Your site’s address</label>
+          <div class="audit-form__row">
+            <input id="site-url" name="url" type="url" inputmode="url" autocomplete="url"
+                   placeholder="https://example.com" spellcheck="false" required
+                   aria-describedby="url-note url-status">
+            <button type="submit">Run the audit</button>
+          </div>
+          <p class="note" id="url-note">No account. Nothing is stored.</p>
+          <p class="status" id="url-status" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+
+      <figure class="specimen">
+        <div class="finding">
+          <p class="finding__sev">Must fix</p>
+          <h2 class="finding__title">The cookie banner’s text is nearly invisible</h2>
+          <p class="finding__measure"><span class="mono">3.1:1</span> measured, <span class="mono">4.5:1</span> required by WCAG AA</p>
+          <dl class="finding__parts">
+            <dt>What this is</dt>
+            <dd>Grey body text on the white banner that covers the page on first load.</dd>
+            <dt>Problem</dt>
+            <dd>It falls under the contrast floor, so low-vision visitors read a blank strip and cannot find Accept.</dd>
+            <dt>Fix</dt>
+            <dd>Darken the text token two steps. One value changes, nothing else moves.</dd>
+          </dl>
+        </div>
+        <figcaption>A worked example on example.com, with sample values. Not a real audit of a real site.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" id="checks" aria-labelledby="checks-head">
+    <div class="container">
+      <h2 id="checks-head">What the engine reads</h2>
+      <p class="lead">Four checks ship first. Each one measures, it does not vote.</p>
+      <table>
+        <caption>Thresholds are the published standards, not our opinion.</caption>
+        <thead>
+          <tr>
+            <th scope="col">Check</th>
+            <th scope="col">What it measures</th>
+            <th scope="col">Passes at</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Contrast</th>
+            <td data-label="Measures">Text against the surface directly behind it.</td>
+            <td data-label="Passes at"><span class="mono">4.5:1</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Tap targets</th>
+            <td data-label="Measures">The box a finger has to hit, and the gap to its neighbour.</td>
+            <td data-label="Passes at"><span class="mono">44px</span>, <span class="mono">8px</span> apart</td>
+          </tr>
+          <tr>
+            <th scope="row">Layout shift</th>
+            <td data-label="Measures">How far content jumps while the page loads.</td>
+            <td data-label="Passes at">CLS <span class="mono">0.1</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Heading order</th>
+            <td data-label="Measures">Whether h1 to h6 steps one level at a time.</td>
+            <td data-label="Passes at">no skipped level</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section confidence" id="confidence" aria-labelledby="confidence-head">
+    <div class="container">
+      <h2 id="confidence-head">How sure we are</h2>
+      <p class="lead">One of three words sits beside every number. It is the difference between a finding and a guess.</p>
+      <dl class="tags">
+        <div class="tags__item">
+          <dt>Observed</dt>
+          <dd>Measured on your page. The number is the number.</dd>
+        </div>
+        <div class="tags__item">
+          <dt>Inferred</dt>
+          <dd>Derived from a signal, carrying a confidence you can read and dispute.</dd>
+        </div>
+        <div class="tags__item">
+          <dt>Untestable</dt>
+          <dd>Two candidates, no way to separate them. We say that rather than pick one.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="container foot__in">
+    <p class="foot__mark">Redline</p>
+    <div>
+      <p class="foot__state">Pre-alpha. The engine is not connected, so this page sends nothing and validates only the address. The finding above is an example with sample values.</p>
+      <nav class="foot__nav" aria-label="Footer">
+        <a href="#checks">What it reads</a>
+        <a href="#confidence">How sure</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const form = document.getElementById('audit-form');
+  const input = document.getElementById('site-url');
+  const status = document.getElementById('url-status');
+
+  function say(text, tone) {
+    status.textContent = text;
+    status.dataset.tone = tone || '';
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const value = input.value.trim();
+
+    if (!value) {
+      input.setAttribute('aria-invalid', 'true');
+      input.focus();
+      say('Paste your site address first, including https://.', 'alarm');
+      return;
+    }
+
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      input.setAttribute('aria-invalid', 'true');
+      input.focus();
+      say('That is not a full address. Try https://example.com.', 'alarm');
+      return;
+    }
+
+    if (!/^https?:$/.test(url.protocol) || !url.hostname.includes('.')) {
+      input.setAttribute('aria-invalid', 'true');
+      input.focus();
+      say('Use an http or https address with a domain, for example https://example.com.', 'alarm');
+      return;
+    }
+
+    input.removeAttribute('aria-invalid');
+    say('Nothing was sent. The audit engine is not connected yet, so there is no report to show.', 'quiet');
+  });
+
+  input.addEventListener('input', () => {
+    if (input.getAttribute('aria-invalid') === 'true') {
+      input.removeAttribute('aria-invalid');
+      say('', '');
+    }
+  });
+</script>
+</body>
+</html>

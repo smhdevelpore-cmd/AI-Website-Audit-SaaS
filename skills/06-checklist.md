@@ -30,7 +30,9 @@ One pass, all four skills. Skip a line only when it cannot apply, and say so in 
 - [ ] No eyebrow, no tracked-caps label, no middle-dot meta, no glued arrow, no status dot.
 - [ ] No purple-to-blue gradient, no card in a card, no emoji icon.
 - [ ] Hero legible at 1280×800; ~80 words a screen; `dvh`/`svh`; container capped.
-- [ ] The stamp is line one of the stylesheet, with any waiver stated.
+- [ ] The stamp is line one of the stylesheet, starts with `Hallmark`, and states any waiver.
+- [ ] `node tools/sloplint/sloplint.mjs <file> --genre <genre>` is clean: 0 FAIL, 0 open REFLEX.
+- [ ] Contrast computed, not eyeballed. Print the ratios.
 
 ## Interface order
 
