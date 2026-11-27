@@ -43,6 +43,8 @@ const port = z.coerce.number().int().min(1).max(65535).default(3000);
 
 const auditLimits = {
   AUDIT_MAX_PAGES: z.coerce.number().int().min(1).max(25).default(25),
+  /** Audits one account may start in a rolling 24 hours (TRD §14, PRD FR-17). */
+  AUDIT_DAILY_LIMIT: z.coerce.number().int().min(1).max(1000).default(20),
   AUDIT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(30_000),
   AUDIT_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
 };

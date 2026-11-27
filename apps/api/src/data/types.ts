@@ -7,6 +7,8 @@
  * separates tenants.
  */
 
+import { publicAuditFailureMessage } from "@siteaudit/shared-types";
+
 export interface ProfileRow {
   id: string;
   name: string;
@@ -27,6 +29,8 @@ export interface AuditRow {
   user_id: string;
   url: string;
   host: string;
+  client_name: string | null;
+  project_name: string | null;
   status: string;
   stage: string | null;
   max_pages: number;
@@ -41,6 +45,28 @@ export interface AuditRow {
   updated_at: string;
 }
 
+/** What a caller asks for when creating an audit. The server fills in status and timestamps. */
+export interface NewAuditRow {
+  readonly url: string;
+  readonly host: string;
+  readonly clientName: string | null;
+  readonly projectName: string | null;
+  readonly maxPages: number;
+}
+
+export interface AuditListQuery {
+  readonly page: number;
+  readonly limit: number;
+  readonly status?: string;
+  readonly search?: string;
+}
+
+export interface AuditListResult {
+  readonly rows: readonly AuditRow[];
+  /** Total matching rows, so the client can paginate without guessing. */
+  readonly total: number;
+}
+
 /**
  * Everything the API may do with one user's rows. There is no `list all` and no lookup by
  * anything but the caller's own identifiers: a method that could reach another tenant must not
@@ -51,6 +77,25 @@ export interface UserData {
   /** `null` when the row does not exist or is not the caller's (RLS returns no row either way). */
   updateProfile(userId: string, patch: ProfilePatch): Promise<ProfileRow | null>;
   findAudit(auditId: string): Promise<AuditRow | null>;
+
+  /**
+   * Inserts a `queued` audit owned by the caller. RLS enforces both facts
+   * (`with check (user_id = auth.uid() and status = 'queued')`), so this method cannot create
+   * a row for someone else or invent a finished status.
+   */
+  createAudit(userId: string, input: NewAuditRow): Promise<AuditRow>;
+
+  /** Newest first. `search` matches the address, host and the two labels. */
+  listAudits(userId: string, query: AuditListQuery): Promise<AuditListResult>;
+
+  /** How many audits this user created since a moment — the usage limit's only input. */
+  countAuditsSince(userId: string, since: Date): Promise<number>;
+
+  /** A queued or running audit for exactly this address, if one exists. */
+  findActiveAudit(userId: string, url: string): Promise<AuditRow | null>;
+
+  /** True when a row was removed. RLS means only the caller's rows can be. */
+  deleteAudit(auditId: string): Promise<boolean>;
 }
 
 /** Builds a client for one request, authorised by that request's access token. */
@@ -71,13 +116,20 @@ export interface AuditView {
   id: string;
   url: string;
   host: string;
+  clientName: string | null;
+  projectName: string | null;
   status: string;
   stage: string | null;
   maxPages: number;
   pagesScanned: number;
   partial: boolean;
-  error: { code: string | null; message: string | null } | null;
+  /**
+   * `message` is generated from `code`, never read from the row: a stored message could be a
+   * database error, and this field is rendered in a browser.
+   */
+  error: { code: string; message: string } | null;
   createdAt: string;
+  updatedAt: string;
   startedAt: string | null;
   completedAt: string | null;
 }
@@ -95,20 +147,21 @@ export function toProfileView(row: ProfileRow): ProfileView {
 }
 
 export function toAuditView(row: AuditRow): AuditView {
+  const code = row.error_code ?? (row.error_message === null ? null : "internal_error");
   return {
     id: row.id,
     url: row.url,
     host: row.host,
+    clientName: row.client_name,
+    projectName: row.project_name,
     status: row.status,
     stage: row.stage,
     maxPages: row.max_pages,
     pagesScanned: row.pages_scanned,
     partial: row.was_partial,
-    error:
-      row.error_code === null && row.error_message === null
-        ? null
-        : { code: row.error_code, message: row.error_message },
+    error: code === null ? null : { code, message: publicAuditFailureMessage(code) },
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
     startedAt: row.started_at,
     completedAt: row.completed_at,
   };

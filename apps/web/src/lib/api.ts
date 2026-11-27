@@ -60,6 +60,10 @@ export async function apiRequest<T>(
     throw new ApiError("network_error", "We could not reach the server. Check your connection.");
   }
 
+  // 204 (a successful DELETE) has no body, and asking for JSON would throw a SyntaxError that
+  // looks like a server fault.
+  if (response.status === 204) return { data: undefined as T };
+
   let payload: unknown;
   try {
     payload = await response.json();

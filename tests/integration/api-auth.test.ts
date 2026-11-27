@@ -30,6 +30,8 @@ const ALICE_AUDIT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const BOB_AUDIT = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 const AUDIT_BASE: Omit<AuditRow, "id" | "user_id" | "url" | "host"> = {
+  client_name: null,
+  project_name: null,
   status: "completed",
   stage: null,
   max_pages: 25,
@@ -92,6 +94,28 @@ class FakeData implements UserData {
   async findAudit(auditId: string): Promise<AuditRow | null> {
     this.auditLookups.push(auditId);
     return this.audits.get(auditId) ?? null;
+  }
+
+  // The write path is exercised in tests/integration/audit-submission.test.ts; this suite is
+  // about reads and refusals, so these only need to exist.
+  async createAudit(): Promise<AuditRow> {
+    throw new Error("not used in this suite");
+  }
+
+  async listAudits(): Promise<{ rows: AuditRow[]; total: number }> {
+    throw new Error("not used in this suite");
+  }
+
+  async countAuditsSince(): Promise<number> {
+    throw new Error("not used in this suite");
+  }
+
+  async findActiveAudit(): Promise<AuditRow | null> {
+    throw new Error("not used in this suite");
+  }
+
+  async deleteAudit(): Promise<boolean> {
+    throw new Error("not used in this suite");
   }
 }
 
@@ -344,7 +368,10 @@ describe("when Supabase is not configured", () => {
 
   it("still serves health and the contract probe", async () => {
     const health = await fetch(`${bareUrl}/health`);
-    expect((await readJson(health)).data).toMatchObject({ status: "ok", auth: "absent" });
+    expect((await readJson(health)).data).toMatchObject({
+      status: "degraded",
+      checks: { auth: "absent", queue: "absent" },
+    });
 
     const probe = await fetch(`${bareUrl}/api/v1/audits/validate`, {
       method: "POST",

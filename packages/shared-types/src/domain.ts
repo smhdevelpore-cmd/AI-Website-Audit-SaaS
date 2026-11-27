@@ -14,6 +14,44 @@ export type AuditStatus = (typeof AUDIT_STATUSES)[number];
 /** Statuses that will not change again without a new request. */
 export const TERMINAL_AUDIT_STATUSES = ["completed", "partial", "failed", "cancelled"] as const;
 
+export function isTerminalAuditStatus(status: string): boolean {
+  return (TERMINAL_AUDIT_STATUSES as readonly string[]).includes(status);
+}
+
+/** Statuses where a job either exists in the queue or is being worked on right now. */
+export const ACTIVE_AUDIT_STATUSES = ["queued", "running"] as const;
+
+/**
+ * Why an audit produced no results (TRD §6: "fatal error fails audit with sanitized message").
+ *
+ * Codes are stable and safe to branch on; the sentences live in one place so the API, the
+ * worker and the UI cannot drift into three different explanations of the same event.
+ */
+export const AUDIT_FAILURE_CODES = [
+  "target_not_allowed",
+  "target_unreachable",
+  "scanner_not_ready",
+  "queue_unavailable",
+  "internal_error",
+] as const;
+export type AuditFailureCode = (typeof AUDIT_FAILURE_CODES)[number];
+
+const AUDIT_FAILURE_MESSAGES: Readonly<Record<AuditFailureCode, string>> = {
+  target_not_allowed: "That address is not a public website this service is allowed to scan.",
+  target_unreachable: "The website could not be reached, so nothing was measured.",
+  scanner_not_ready: "This build cannot scan websites yet. Nothing was measured and no report was produced.",
+  queue_unavailable: "The audit could not be queued, so it never started.",
+  internal_error: "The scan stopped because of an internal error. No results were produced.",
+};
+
+/** Never echoes the stored `error_message`: an unknown code gets the generic sentence. */
+export function publicAuditFailureMessage(code: string | null): string {
+  const known = (AUDIT_FAILURE_CODES as readonly string[]).find((candidate) => candidate === code);
+  return known === undefined
+    ? AUDIT_FAILURE_MESSAGES.internal_error
+    : AUDIT_FAILURE_MESSAGES[known as AuditFailureCode];
+}
+
 export const AUDIT_STAGES = [
   "validating",
   "crawling",

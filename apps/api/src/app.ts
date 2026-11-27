@@ -8,6 +8,7 @@
 import express, { type Express, type RequestHandler } from "express";
 
 import { AppError, toSuccessBody } from "@siteaudit/shared-types";
+import type { AuditQueue } from "@siteaudit/queue";
 import { createAuditInputSchema } from "@siteaudit/validation";
 
 import { currentUser, requireAuth, type AuthContext } from "./auth/middleware.js";
@@ -15,6 +16,7 @@ import { auditRouter } from "./routes/audits.js";
 import { profileRouter } from "./routes/profile.js";
 import { errorHandler, notFoundHandler } from "./http/errors.js";
 import { validateBody } from "./http/validate.js";
+import { DEFAULT_AUDIT_LIMITS, type AuditLimits } from "./limits.js";
 
 export interface AppOptions {
   /**
@@ -23,6 +25,14 @@ export interface AppOptions {
    * of pretending a token was checked.
    */
   readonly auth: AuthContext | null;
+  /**
+   * `null` (or absent) when this deployment has no Redis. Submissions then answer 503: a
+   * `queued` audit with no queue behind it would be a promise nothing keeps.
+   */
+  readonly queue?: AuditQueue | null;
+  readonly limits?: Partial<AuditLimits>;
+  /** Injected in tests so a usage window is deterministic. */
+  readonly now?: () => Date;
 }
 
 const authUnavailable: RequestHandler = (_request, _response, next) => {
@@ -35,12 +45,36 @@ const authUnavailable: RequestHandler = (_request, _response, next) => {
 
 export function createApp(options: AppOptions): Express {
   const app = express();
+  const queue = options.queue ?? null;
+  const limits: AuditLimits = { ...DEFAULT_AUDIT_LIMITS, ...options.limits };
+
   app.disable("x-powered-by");
   app.use(express.json({ limit: "100kb" }));
 
-  app.get("/health", (_request, response) => {
-    response.json(
-      toSuccessBody({ status: "ok", version: 1, auth: options.auth === null ? "absent" : "ready" }),
+  /**
+   * Liveness plus the two dependencies this process cannot work without. A deployment with no
+   * queue reports `absent` rather than pretending to be healthy at something it does not do,
+   * and a deployment whose Redis is down answers 503 so a load balancer can take it out.
+   */
+  app.get("/health", async (_request, response) => {
+    let queueCheck: "ok" | "unavailable" | "absent" = "absent";
+    if (queue !== null) {
+      try {
+        const health = await queue.health();
+        queueCheck = health.status;
+      } catch {
+        queueCheck = "unavailable";
+      }
+    }
+    const authCheck = options.auth === null ? "absent" : "ready";
+    const status = queueCheck === "unavailable" || authCheck === "absent" ? "degraded" : "ok";
+
+    response.status(queueCheck === "unavailable" ? 503 : 200).json(
+      toSuccessBody({
+        status,
+        version: 2,
+        checks: { auth: authCheck, queue: queueCheck },
+      }),
     );
   });
 
@@ -66,7 +100,14 @@ export function createApp(options: AppOptions): Express {
     });
 
     app.use("/api/v1/profile", profileRouter(auth));
-    app.use("/api/v1/audits", auditRouter(auth));
+    app.use(
+      "/api/v1/audits",
+      auditRouter(auth, {
+        queue,
+        limits,
+        ...(options.now === undefined ? {} : { now: options.now }),
+      }),
+    );
   }
 
   app.use(notFoundHandler);

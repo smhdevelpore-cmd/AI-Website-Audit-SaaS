@@ -1,0 +1,25 @@
+{
+  "name": "@siteaudit/queue",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@siteaudit/shared-types": "0.0.0",
+    "bullmq": "^5.40.2",
+    "ioredis": "^5.4.2",
+    "zod": "^4.6.7"
+  }
+}

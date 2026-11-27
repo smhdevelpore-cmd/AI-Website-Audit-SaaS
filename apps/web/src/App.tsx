@@ -13,6 +13,7 @@ import { ProtectedRoute } from "./auth/ProtectedRoute.js";
 import { AppShell } from "./components/AppShell.js";
 import { ToastProvider } from "./components/ui/Toast.js";
 import { Landing } from "./pages/Landing.js";
+import { AuditDetail } from "./pages/app/AuditDetail.js";
 import { Audits } from "./pages/app/Audits.js";
 import { Dashboard } from "./pages/app/Dashboard.js";
 import { NotFound } from "./pages/app/NotFound.js";
@@ -48,6 +49,7 @@ export function App() {
             >
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/audits" element={<Audits />} />
+              <Route path="/audits/:auditId" element={<AuditDetail />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
 

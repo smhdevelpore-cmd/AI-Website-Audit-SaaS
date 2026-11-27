@@ -14,12 +14,12 @@ Sliced so each phase ends with something that can be run and judged, and so the 
 | **1b · URL safety** | `packages/validation`: scheme, credentials, ports, IP and DNS rules | unit tests cover every blocked range, including v4-mapped, NAT64, 6to4 |
 | **2 · Supabase schema, auth, ownership** | seven tables, constraints, indexes, RLS, profile provisioning, token verification, ownership helper, browser auth flow | cross-tenant access fails in tests, not in production |
 | **3 · Interface foundation** | design tokens, Tailwind, shared components, app shell, landing, auth screens, dashboard/history/settings shells, accessibility | responsive, labelled, no dead controls; contrast measured and tested |
-| **4 · Bounded fetcher** | HTTP fetch pinned to validated addresses, redirect revalidation, size/time limits | tests: redirect to metadata, redirect loop, oversized body, rebind simulation |
-| **5 · Rules + scoring** | HTML parse, rule engine, normalisation, deterministic scoring with weights from PRD FR-13 | fixture pages produce stable findings and a reproducible score |
-| **6 · Jobs** | Redis + BullMQ, worker lifecycle, stage reporting, partial results | a real site is audited end to end without holding an HTTP request open |
+| **4 · Audit submission + jobs** | `POST/GET/GET one/DELETE /audits`, server-side limits, BullMQ queue with idempotent jobs and bounded retries, worker with explicit status/stage transitions, Redis health, New Audit and history UI on TanStack Query | a submitted audit is persisted and queued; the UI shows its real status; a queue or database failure never produces a false success |
+| **5 · Bounded fetcher** | HTTP fetch pinned to validated addresses, redirect revalidation, size/time limits | tests: redirect to metadata, redirect loop, oversized body, rebind simulation |
+| **6 · Rules + scoring** | HTML parse, rule engine, normalisation, deterministic scoring with weights from PRD FR-13 | fixture pages produce stable findings and a reproducible score |
 | **7 · AI + PDF** | evidence-only explanations, schema validation, PDF from stored snapshot | AI failure leaves deterministic findings intact; PDF renders from the snapshot alone |
 
-Phases 0–3 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
+Phases 0–4 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
 the end.
 
 ### Phase numbering changed
@@ -35,16 +35,29 @@ and response size before anything is allowed to fetch a real site.
 Phase 3 then arrived as the interface foundation, which moved the fetcher again. Same argument:
 a UI that cannot start a scan cannot leak a scan.
 
+Phase 4 arrived as submission and jobs, which moved the fetcher once more. This one is worth
+stating plainly, because it is the first reordering that could have gone wrong: the queue now
+accepts work, so an audit can reach a worker. It cannot reach a *site* — the worker's step list
+is empty, so the only thing it does with a target is validate it and record
+`scanner_not_ready`. The crawler still has to exist before anything fetches a page, and the
+fetcher phase is still the one that closes redirects, the connected address and response size.
+
 ## What exists now
 
-- `apps/api` — Express process: `GET /health`, a contract probe at
-  `POST /api/v1/audits/validate` (validates, queues nothing), the error envelope, bearer-token
-  verification, `GET /api/v1/me`, `GET|PATCH /api/v1/profile` and `GET /api/v1/audits/:id`.
+- `apps/api` — Express process: `GET /health` (auth + queue), the error envelope, bearer-token
+  verification, `GET /api/v1/me`, `GET|PATCH /api/v1/profile`, the contract probe at
+  `POST /api/v1/audits/validate`, and the audit endpoints: `POST /api/v1/audits` (validate,
+  limit, persist, enqueue), `GET /api/v1/audits` (pagination, filter, search),
+  `GET /api/v1/audits/:id` and `DELETE /api/v1/audits/:id` (queued audits only).
 - `apps/web` — Tailwind + React: landing page, sign in / sign up / password reset, and a protected
   shell (overview, audit history, settings) that calls the API with the session's own token.
   Settings writes the profile; everything else shows an empty state because there is no data.
   See [`docs/UI.md`](UI.md).
-- `apps/worker` — prints that no queue exists and exits 0.
+- `apps/worker` — BullMQ consumer: claims an audit (`queued → running`), revalidates the target,
+  records usage, then reports `failed/scanner_not_ready` because the scan pipeline has no steps
+  yet. Retries are classified (infrastructure only), every write is conditional, and every stored
+  message is generated from a code. See [`docs/QUEUES.md`](QUEUES.md).
+- `packages/queue` — the queue contract, the BullMQ adapter and the in-memory queue the tests use.
 - `supabase/migrations/` — schema for the seven tables, profile provisioning, RLS policies.
 - `tests/support/database.ts` — PGlite harness that runs those migrations unmodified
 - `packages/validation` — the URL safety gate, plus Zod schemas for create-audit input,
@@ -75,6 +88,21 @@ a UI that cannot start a scan cannot leak a scan.
 6. **Scope creep.** The non-goals list in PRD §4 is the guard. Anything not on it waits.
 7. **Bus factor of one.** Migrations, env docs and the runbook stay in the repo so the project
    survives a handover.
+
+## Decisions made in Phase 4
+
+| Decision | Why |
+|---|---|
+| Job id = audit id | Idempotency without an extra table or a lock: `add` twice is one job |
+| Create the row, then enqueue, and delete the row if enqueue fails | A `queued` row with no job is a lie the UI repeats until someone notices. The compensating delete is logged if it also fails |
+| The worker classifies failures; BullMQ only retries what deserves it | Retrying a rejected target or a bug three times makes a broken site look like a flaky server |
+| Every stored failure message is generated from a code | Exception text can contain a hostname, an IP or a connection string, and this text is rendered |
+| Terminal writes are conditional in SQL (`completed_at is null`) | A retried job, a restart and a cancel-race all have to end in one defined state, not "last writer wins" |
+| Only `queued` audits can be cancelled, and the row is deleted rather than marked `cancelled` | The schema grants users `delete`, not `update`: status belongs to the worker. `not-queued` still deletes, so a dead `queued` row cannot hang the UI |
+| `authenticated` may insert a queued audit, so the API holds no service-role key | Usage metering moved to the worker instead. The request path never bypasses RLS |
+| In-memory queue for tests, BullMQ behind the same contract | There is no Redis or Docker here. The adapter is typechecked and its URL parsing is tested; the Redis suite is opt-in and reported as skipped, not passed |
+| 2 s budget on enqueue/cancel | ioredis buffers while reconnecting, so without a timeout a dead Redis holds an HTTP request open |
+| The worker ends an audit `failed/scanner_not_ready` today | The alternative is a row stuck at `queued` forever. The UI shows the sentence, so nothing claims a scan happened |
 
 ## Decisions made in Phase 3
 

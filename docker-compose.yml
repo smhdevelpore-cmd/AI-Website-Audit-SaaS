@@ -1,0 +1,18 @@
+# Local services (TRD §16: "Local dev uses Docker for Redis").
+#
+# Supabase is managed, so it is not here: point SUPABASE_* at a project or a local `supabase
+# start`. Redis is the only piece this repository needs a container for.
+#
+#   docker compose up -d redis
+#   REDIS_TEST_URL=redis://localhost:6379/15 npm run test   # the opt-in BullMQ suite
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

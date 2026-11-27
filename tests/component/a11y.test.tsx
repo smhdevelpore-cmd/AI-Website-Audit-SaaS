@@ -8,6 +8,7 @@
  */
 
 import type { ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -26,6 +27,7 @@ import { AppShell } from "../../apps/web/src/components/AppShell.js";
 import { ToastProvider } from "../../apps/web/src/components/ui/Toast.js";
 import { Landing } from "../../apps/web/src/pages/Landing.js";
 import { Audits } from "../../apps/web/src/pages/app/Audits.js";
+import { NewAuditDialog } from "../../apps/web/src/components/NewAuditDialog.js";
 import { NotFound } from "../../apps/web/src/pages/app/NotFound.js";
 import { Settings } from "../../apps/web/src/pages/app/Settings.js";
 import { ForgotPassword } from "../../apps/web/src/pages/auth/ForgotPassword.js";
@@ -55,12 +57,47 @@ const ROUTES = new Set([
   "/settings",
 ]);
 
+/** Routes with a parameter. The id is a uuid, so the shape is checked, not the value. */
+const ROUTE_PATTERNS: readonly RegExp[] = [
+  /^\/audits\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+];
+
+/**
+ * Renders a signed-in page with the providers it needs. The audit screens fetch, so the empty
+ * list is stubbed: these tests are about the DOM the user meets, not about the network.
+ */
+function renderAuthed(node: ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: [],
+            meta: { page: 1, limit: 10, total: 0, totalPages: 1, hasMore: false },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    ),
+  );
+  return render(
+    <QueryClientProvider client={client}>
+      <ToastProvider>
+        <MemoryRouter>{node}</MemoryRouter>
+      </ToastProvider>
+    </QueryClientProvider>,
+  );
+}
+
 beforeEach(() => {
   auth.useAuth.mockReturnValue(signedIn);
 });
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -93,8 +130,11 @@ function controlProblems(root: HTMLElement): string[] {
     const href = link.getAttribute("href");
     if (href === null || href === "" || href === "#") {
       problems.push(`link that goes nowhere (href="${href}")`);
-    } else if (href.startsWith("/") && !ROUTES.has(href.split("?")[0] as string)) {
-      problems.push(`link to a route that does not exist (${href})`);
+    } else if (href.startsWith("/")) {
+      const path = href.split("?")[0] as string;
+      if (!ROUTES.has(path) && !ROUTE_PATTERNS.some((pattern) => pattern.test(path))) {
+        problems.push(`link to a route that does not exist (${href})`);
+      }
     }
   }
 
@@ -236,14 +276,25 @@ describe("authenticated pages", () => {
     expectClean(container);
   });
 
-  it("audit history says it is empty instead of showing a table of nothing", () => {
-    const { container } = render(
-      <MemoryRouter>
-        <Audits />
-      </MemoryRouter>,
-    );
+  it("the new-audit dialog labels every field and can be dismissed with Escape", async () => {
+    const user = userEvent.setup();
+    const { container } = renderAuthed(<NewAuditDialog open onClose={() => undefined} />);
+
+    expect(screen.getByRole("dialog", { name: "New audit" })).toBeTruthy();
+    expect(screen.getByLabelText("Website address")).toBeTruthy();
+    expect(screen.getByLabelText("Client name")).toBeTruthy();
+    expect(screen.getByLabelText("Project name")).toBeTruthy();
+    expect(screen.getByLabelText("Pages to scan")).toBeTruthy();
+    expectClean(container);
+
+    await user.keyboard("{Escape}");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("audit history says it is empty instead of showing a table of nothing", async () => {
+    const { container } = renderAuthed(<Audits />);
     expect(screen.getByRole("heading", { name: "My audits" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Nothing here yet" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "No audits yet" })).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
     expectClean(container);
   });
