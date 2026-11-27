@@ -1,7 +1,4 @@
 {
   "files": [],
-  "references": [
-    { "path": "packages/validation" },
-    { "path": "packages/validation/tsconfig.test.json" }
-  ]
+  "references": [{ "path": "packages/validation" }]
 }

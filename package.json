@@ -2,10 +2,14 @@
   "name": "siteaudit-ai",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
-  "engines": { "node": ">=20.11" },
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
   "scripts": {
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p packages/validation/tsconfig.test.json",
     "test": "vitest run"
   },
   "devDependencies": {
