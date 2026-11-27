@@ -17,6 +17,9 @@
       "path": "packages/ai-explain"
     },
     {
+      "path": "packages/pagespeed"
+    },
+    {
       "path": "packages/audit-rules"
     },
     {

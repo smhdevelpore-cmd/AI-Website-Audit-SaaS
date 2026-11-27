@@ -42,6 +42,7 @@ export interface Audit {
   /** Per-category score and weight; `score: null` is "not checked", never zero. */
   categoryScores: readonly CategoryScore[] | null;
   ai: AuditAi;
+  metrics: AuditMetrics;
   error: AuditFailure | null;
   createdAt: string;
   updatedAt: string;
@@ -98,6 +99,36 @@ export interface FindingsMeta {
 export interface FindingsResult {
   findings: Finding[];
   meta: FindingsMeta;
+}
+
+export type MetricsStatus = "ok" | "partial" | "unavailable" | "skipped";
+
+/** The provider's own status, separate from the audit's: a scan can succeed and PageSpeed not. */
+export interface AuditMetrics {
+  status: MetricsStatus;
+  reason: string | null;
+  strategy: string | null;
+  providerVersion: string | null;
+  measuredAt: string | null;
+}
+
+export interface Metric {
+  id: string;
+  category: string;
+  metricKey: string;
+  label: string;
+  /** Null exactly when the provider supplied nothing. Never a zero standing in for a gap. */
+  value: number | null;
+  unit: string;
+  source: string;
+  status: string;
+  strategy: string | null;
+  reason: string | null;
+}
+
+export interface MetricsResult {
+  metrics: Metric[];
+  meta: AuditMetrics & { provider: string; counts: Record<string, number> };
 }
 
 export interface AuditListMeta {
@@ -198,6 +229,31 @@ export async function fetchFindings(accessToken: string, auditId: string): Promi
 }
 
 /**
+ * The provider's measurements. Fetched only for a finished audit, like the findings: a running
+ * audit has no metrics, and asking would be a request that can only come back empty.
+ */
+export async function fetchMetrics(accessToken: string, auditId: string): Promise<MetricsResult> {
+  const result = await apiRequest<Metric[]>(config.VITE_API_BASE_URL, `/audits/${auditId}/metrics`, {
+    accessToken,
+  });
+  const metrics = Array.isArray(result.data) ? result.data : [];
+  const meta = (result.meta ?? {}) as Partial<MetricsResult["meta"]>;
+
+  return {
+    metrics,
+    meta: {
+      provider: "pagespeed",
+      counts: meta.counts ?? {},
+      status: meta.status ?? "skipped",
+      reason: meta.reason ?? null,
+      strategy: meta.strategy ?? null,
+      providerVersion: meta.providerVersion ?? null,
+      measuredAt: meta.measuredAt ?? null,
+    },
+  };
+}
+
+/**
  * The PDF, fetched with the caller's token and handed to the browser as a download.
  *
  * A plain link cannot be used: the report endpoint requires an `Authorization` header, and a
@@ -259,6 +315,15 @@ export function useFindings(auditId: string, enabled: boolean) {
   return useQuery({
     queryKey: ["audits", "findings", auditId, accessToken],
     queryFn: () => fetchFindings(accessToken ?? "", auditId),
+    enabled: enabled && accessToken !== null && auditId !== "",
+  });
+}
+
+export function useMetrics(auditId: string, enabled: boolean) {
+  const { accessToken } = useAuth();
+  return useQuery({
+    queryKey: ["audits", "metrics", auditId, accessToken],
+    queryFn: () => fetchMetrics(accessToken ?? "", auditId),
     enabled: enabled && accessToken !== null && auditId !== "",
   });
 }

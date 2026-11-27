@@ -446,6 +446,115 @@ describe("supabase migrations", () => {
     expect(defaults.rows[0]?.ai_status).toBe("skipped");
   });
 
+  it("stores provider metrics with their own status, strategy and reason", async () => {
+    const userId = (
+      await database.db.query<{ id: string }>(
+        `insert into auth.users (email) values ('metrics@example.com') returning id`,
+      )
+    ).rows[0]?.id as string;
+
+    const auditId = (
+      await database.db.query<{ id: string }>(
+        `insert into public.audits
+           (user_id, url, host, status, completed_at, overall_score, scoring_version, metrics_status,
+            metrics_strategy, metrics_provider_version, metrics_measured_at)
+         values ('${userId}','https://m.example','m.example','partial', now(), 82, 'rules-v1', 'ok',
+                 'MOBILE', '12.6.0', now())
+         returning id`,
+      )
+    ).rows[0]?.id as string;
+
+    const metric = (columns: string, values: string): string =>
+      `insert into public.audit_metrics
+         (audit_id, category, metric_key, label, unit, source, status${columns === "" ? "" : `, ${columns}`})
+       values ('${auditId}','performance','largest-contentful-paint','Largest Contentful Paint','ms','pagespeed'${values})`;
+
+    // A number the provider did supply, with the strategy it was measured under.
+    await database.db.exec(
+      `insert into public.audit_metrics
+         (audit_id, category, metric_key, label, unit, source, status, value, strategy)
+       values ('${auditId}','performance','largest-contentful-paint','Largest Contentful Paint','ms',
+               'pagespeed','ok',2400,'MOBILE')`,
+    );
+
+    // The database refuses an unavailable metric that carries a value (the Phase 2 rule) ...
+    await expect(database.db.exec(metric("value", ", 'unavailable', 0"))).rejects.toThrow(
+      /audit_metrics_unavailable_has_no_value/,
+    );
+
+    // ... and an absence with a reason is exactly what it wants.
+    await database.db.exec(
+      `insert into public.audit_metrics
+         (audit_id, category, metric_key, label, unit, source, status, reason, strategy)
+       values ('${auditId}','performance','interaction-to-next-paint','Interaction to Next Paint','ms',
+               'pagespeed','unavailable','quota','MOBILE')`,
+    );
+
+    // A strategy is mobile or desktop, and a reason is one we can print.
+    await expect(
+      database.db.exec(
+        `insert into public.audit_metrics
+           (audit_id, category, metric_key, label, unit, source, status, strategy)
+         values ('${auditId}','performance','speed-index','Speed Index','ms','pagespeed','unavailable','TABLET')`,
+      ),
+    ).rejects.toThrow(/audit_metrics_strategy_valid/);
+
+    await expect(
+      database.db.exec(
+        `insert into public.audit_metrics
+           (audit_id, category, metric_key, label, unit, source, status, reason)
+         values ('${auditId}','performance','total-blocking-time','Total Blocking Time','ms','pagespeed','unavailable','becalmed')`,
+      ),
+    ).rejects.toThrow(/audit_metrics_reason_valid/);
+
+    // The same key twice for the same source and strategy is one measurement, not two.
+    await expect(
+      database.db.exec(
+        `insert into public.audit_metrics
+           (audit_id, category, metric_key, label, unit, source, status, value, strategy)
+         values ('${auditId}','performance','largest-contentful-paint','Largest Contentful Paint','ms','pagespeed','ok',1,'MOBILE')`,
+      ),
+    ).rejects.toThrow(/audit_metrics_dedupe/);
+
+    // A different strategy is a different measurement.
+    await database.db.exec(
+      `insert into public.audit_metrics
+         (audit_id, category, metric_key, label, unit, source, status, value, strategy)
+       values ('${auditId}','performance','largest-contentful-paint','Largest Contentful Paint','ms','pagespeed','ok',1800,'DESKTOP')`,
+    );
+
+    // A raw payload is a bounded sample; an object or nothing.
+    await expect(
+      database.db.exec(
+        `insert into public.audit_metrics
+           (audit_id, category, metric_key, label, unit, source, status, raw)
+         values ('${auditId}','performance','performance-score','Performance score','score','pagespeed','ok','"a string"')`,
+      ),
+    ).rejects.toThrow(/audit_metrics_raw_object/);
+
+    // At the audit level, a reason is only for a provider that fell short.
+    await expect(
+      database.db.exec(
+        `insert into public.audits (user_id, url, host, metrics_status, metrics_reason)
+         values ('${userId}','https://r.example','r.example','ok','quota')`,
+      ),
+    ).rejects.toThrow(/audits_metrics_reason_has_failure/);
+
+    await expect(
+      database.db.exec(
+        `insert into public.audits (user_id, url, host, metrics_status)
+         values ('${userId}','https://s.example','s.example','excellent')`,
+      ),
+    ).rejects.toThrow(/audits_metrics_status_valid/);
+
+    // A row that says nothing about metrics means no provider ran.
+    const defaults = await database.db.query<{ metrics_status: string }>(
+      `insert into public.audits (user_id, url, host)
+       values ('${userId}','https://d.example','d.example') returning metrics_status`,
+    );
+    expect(defaults.rows[0]?.metrics_status).toBe("skipped");
+  });
+
   it("deduplicates findings per audit, issue code and page scope", async () => {
     const userId = (
       await database.db.query<{ id: string }>(

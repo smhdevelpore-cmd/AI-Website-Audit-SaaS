@@ -147,6 +147,7 @@ describe("a scan of a working site", () => {
     expect(data.stages.map((entry) => entry.stage)).toEqual([
       "crawling",
       "rules",
+      "performance",
       "scoring",
       "ai",
       "persisting",

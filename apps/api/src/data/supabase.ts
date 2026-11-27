@@ -18,6 +18,7 @@ import { AppError } from "@siteaudit/shared-types";
 import type {
   AuditListQuery,
   FindingRow,
+  MetricRow,
   PageRowSummary,
   AuditListResult,
   AuditRow,
@@ -32,7 +33,12 @@ const PROFILE_COLUMNS = "id,name,agency_name,website,timezone,logo_url,created_a
 const AUDIT_COLUMNS =
   "id,user_id,url,host,client_name,project_name,status,stage,max_pages,pages_scanned," +
   "was_partial,scoring_version,overall_score,category_scores,error_code,error_message," +
-  "ai_status,ai_model,ai_summary,started_at,completed_at,created_at,updated_at";
+  "ai_status,ai_model,ai_summary,metrics_status,metrics_reason,metrics_strategy," +
+  "metrics_provider_version,metrics_measured_at,started_at,completed_at,created_at,updated_at";
+
+const METRIC_COLUMNS =
+  "id,audit_id,page_id,category,metric_key,label,value,unit,source,status,strategy," +
+  "provider_version,measured_at,reason";
 
 /**
  * Findings with their page, flattened by the embed. `audit_pages(url)` is a to-one relation
@@ -203,6 +209,18 @@ export function createSupabaseUserDataFactory(options: SupabaseUserDataOptions):
           .order("id", { ascending: true })
           .returns<FindingRow[]>();
         if (error) failed("audit_findings.select", error);
+        return data ?? [];
+      },
+
+      async listMetrics(auditId: string) {
+        const { data, error } = await client
+          .from("audit_metrics")
+          .select(METRIC_COLUMNS)
+          .eq("audit_id", auditId)
+          .order("category", { ascending: true })
+          .order("metric_key", { ascending: true })
+          .returns<MetricRow[]>();
+        if (error) failed("audit_metrics.select", error);
         return data ?? [];
       },
 

@@ -3,23 +3,26 @@
 Audits a public website URL, collects real measurements, explains findings in plain language,
 prioritises the fixes and produces a client-ready PDF.
 
-**Status: Phase 7, explanations and the report.** You can sign up, submit an address, watch it move
-from `queued` through `crawling`, `rules`, `scoring` and `ai`, and open the finished audit to read
-its score, each category's weight and every finding with the evidence behind it. **The scan is
-real**: a bounded crawl, deterministic rules over what was fetched, and a weighted score with the
-formula's version stored beside it. A finished audit downloads as a **PDF built only from stored
-rows**. Where an `LLM_API_KEY` is configured, a model explains the findings in client language —
-stored beside the result, never inside it — and its absence is labelled rather than blank.
+**Status: Phase 8, performance provider.** You can sign up, submit an address, watch it move from
+`queued` through `crawling`, `rules`, `performance`, `scoring` and `ai`, and open the finished audit
+to read its score, each category's weight, PageSpeed's measurements, and every finding with the
+evidence behind it. **The scan is real**: a bounded crawl, deterministic rules over what was fetched,
+and a weighted score with the formula's version stored beside it. A finished audit downloads as a
+**PDF built only from stored rows**. Where a `PAGESPEED_API_KEY` is configured the provider's numbers
+are stored with a status of their own; where an `LLM_API_KEY` is configured a model explains the
+findings in client language, stored beside the result rather than inside it. Every absence is
+labelled.
 
-Lighthouse/PageSpeed metrics are not wired yet (Phase 8), so performance is measured by our own crawl
-and labelled as ours everywhere it appears. Submissions need Redis; without it the API answers `503`
-rather than queueing a job nothing will run.
+PageSpeed does not feed the score — a provider outage must not reprice an audit — so performance is
+scored by our own crawl and labelled as ours wherever it appears. Submissions need Redis; without it
+the API answers `503` rather than queueing a job nothing will run.
 
 - [`docs/PLAN.md`](docs/PLAN.md) — phase plan, risks, decisions, open questions
 - [`docs/UI.md`](docs/UI.md) — tokens, contrast measurements, components, accessibility, what is absent and why
 - [`docs/QUEUES.md`](docs/QUEUES.md) — submission, the job contract, retry rules, cancellation, what is unproven
 - [`docs/CRAWLER.md`](docs/CRAWLER.md) — the fetch rules, failure codes, limits, discovery policy, residual SSRF risk and the egress recommendation
 - [`docs/RULES.md`](docs/RULES.md) — every rule and its threshold, the scoring formula, the weights, why a category can be N/A
+- [`docs/PROVIDERS.md`](docs/PROVIDERS.md) — PageSpeed: what is asked, what is stored, why a refusal is a `partial` audit and not a zero
 - [`docs/AI-EXPLAIN.md`](docs/AI-EXPLAIN.md) — what the model is sent, what it may return, every failure branch, why it cannot change a result
 - [`docs/REPORT.md`](docs/REPORT.md) — the PDF: its sections, deterministic rendering, sanitising untrusted text, what it deliberately omits
 - [`docs/SUPABASE.md`](docs/SUPABASE.md) — local setup, migrations, what the RLS tests cover
@@ -68,8 +71,8 @@ REDIS_URL=redis://localhost:6379 npm run dev --workspace @siteaudit/api
 | `npm run ci` | all of the above, in the order CI runs them |
 | `npm run clean` | removes every `dist/` and `.tsbuildinfo` |
 
-Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 535 tests passing
-(36 files, 2 skipped), build 0 across all eleven workspaces (3 apps, 8 packages). Two tests are
+Verified on this machine, 2026-11-27: lint 0, format:check 0, typecheck 0, 573 tests passing
+(38 files, 2 skipped), build 0 across all twelve workspaces (3 apps, 9 packages). Two tests are
 skipped by design: the BullMQ suite runs only with `REDIS_TEST_URL`.
 
 ## Layout
@@ -85,6 +88,7 @@ packages/
   queue/        queue contract, BullMQ adapter, in-memory queue for tests
   crawler/      safe fetch, robots/sitemap/link discovery, HTML parser, audit_pages rows
   audit-rules/  30 rules over seven categories, the engine, and the weighted score
+  pagespeed/    PageSpeed Insights client and parser: metrics, opportunities, one reason per failure
   ai-explain/   the explanation step: bounded prompt, validated reply, HTTP provider
   report-template/ snapshot from rows + PDF renderer (no browser, no network)
   config/       environment schemas, one per process, validated at startup

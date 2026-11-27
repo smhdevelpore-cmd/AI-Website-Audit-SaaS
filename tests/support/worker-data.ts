@@ -13,6 +13,7 @@ import { publicAuditFailureMessage, type AuditStage, type UsageKind } from "@sit
 import type { AuditFinish, WorkerAudit, WorkerData } from "../../apps/worker/src/data.js";
 import type { NewFindingRow } from "../../apps/worker/src/finding-rows.js";
 import type { ExplanationRows } from "../../apps/worker/src/data.js";
+import { toMetricRows, type PerformanceReport } from "@siteaudit/pagespeed";
 import type { AIRecommendationOutput } from "@siteaudit/validation";
 import type { InMemoryUserData } from "./audit-store.js";
 
@@ -35,6 +36,8 @@ export class InMemoryWorkerData implements WorkerData {
   /** What the AI step wrote, per audit. Absent means the step produced nothing for it. */
   readonly explanations = new Map<string, ExplanationRows>();
   readonly aiUnavailable: string[] = [];
+  /** What the provider step stored, per audit. Absent means the step wrote nothing. */
+  readonly metrics = new Map<string, PerformanceReport>();
   readonly findingExplanations = new Map<string, AIRecommendationOutput>();
 
   /** Set to make the next `loadAudit` (and only that call) throw, to simulate a DB blip. */
@@ -187,6 +190,43 @@ export class InMemoryWorkerData implements WorkerData {
     if (row !== undefined) {
       this.store.audits.set(auditId, { ...row, ai_status: "unavailable", ai_summary: null });
     }
+  }
+
+  async saveMetrics(auditId: string, report: PerformanceReport): Promise<void> {
+    this.metrics.set(auditId, report);
+
+    const row = this.store.audits.get(auditId);
+    if (row !== undefined) {
+      this.store.audits.set(auditId, {
+        ...row,
+        metrics_status: report.status,
+        metrics_reason: report.reason,
+        metrics_strategy: report.strategy,
+        metrics_provider_version: report.providerVersion,
+        metrics_measured_at: report.measuredAt,
+      });
+    }
+
+    // Replace, as the delete-then-insert does: a retried audit keeps one of each metric.
+    this.store.metrics.set(
+      auditId,
+      toMetricRows(report).map((metric) => ({
+        id: `${auditId}:${metric.metric_key}`,
+        audit_id: auditId,
+        page_id: null,
+        category: metric.category,
+        metric_key: metric.metric_key,
+        label: metric.label,
+        value: metric.value,
+        unit: metric.unit,
+        source: metric.source,
+        status: metric.status,
+        strategy: metric.strategy,
+        provider_version: metric.provider_version,
+        measured_at: metric.measured_at,
+        reason: metric.reason,
+      })),
+    );
   }
 
   async saveScores(auditId: string, scores: ScoreResult): Promise<void> {

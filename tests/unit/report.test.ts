@@ -10,6 +10,7 @@
 import {
   buildReportOutline,
   buildReportSnapshot,
+  formatMetric,
   renderReportPdf,
   sanitizePdfText,
   wrapText,
@@ -243,7 +244,7 @@ describe("the PDF", () => {
     expect(text).toContain("not a WCAG certification");
     expect(text).toContain("Methodology");
     expect(text).toContain("Versions");
-    expect(text).toContain("template report-v1");
+    expect(text).toContain("template report-v2");
     expect(text).toContain("scoring rules-v1");
   });
 
@@ -257,6 +258,110 @@ describe("the PDF", () => {
 
     const skipped = buildReportOutline(buildReportSnapshot(source()));
     expect(skipped.some((block) => block.text === "Summary")).toBe(false);
+  });
+});
+
+describe("the provider section", () => {
+  const metrics = {
+    status: "ok" as const,
+    reason: null,
+    strategy: "MOBILE",
+    providerVersion: "12.6.0",
+    measuredAt: "2026-11-27T09:58:00.000Z",
+    metrics: [
+      {
+        metricKey: "performance-score",
+        label: "Performance score",
+        value: 72,
+        unit: "score",
+        status: "ok",
+        reason: null,
+      },
+      {
+        metricKey: "largest-contentful-paint",
+        label: "Largest Contentful Paint",
+        value: 2100,
+        unit: "ms",
+        status: "ok",
+        reason: null,
+      },
+      {
+        metricKey: "cumulative-layout-shift",
+        label: "Cumulative Layout Shift",
+        value: 0.0421,
+        unit: "ratio",
+        status: "ok",
+        reason: null,
+      },
+      {
+        metricKey: "interaction-to-next-paint",
+        label: "Interaction to Next Paint",
+        value: null,
+        unit: "ms",
+        status: "unavailable",
+        reason: null,
+      },
+    ],
+  };
+
+  it("prints each number with its unit and says who measured it", () => {
+    const text = buildReportOutline(buildReportSnapshot({ ...source(), metrics }))
+      .map((block) => block.text)
+      .join("\n");
+
+    expect(text).toContain("Performance measured by PageSpeed Insights (mobile)");
+    expect(text).toContain("Performance score: 72 / 100");
+    expect(text).toContain("Largest Contentful Paint: 2100 ms");
+    expect(text).toContain("Cumulative Layout Shift: 0.042");
+    // A metric the provider did not return is printed as an absence, never as 0.
+    expect(text).toContain("Interaction to Next Paint: not measured");
+    expect(text).toContain("These figures are Google's");
+    expect(text).toContain("pagespeed 12.6.0");
+  });
+
+  it("replaces the table with a reason when the provider refused", () => {
+    const text = buildReportOutline(
+      buildReportSnapshot({
+        ...source(),
+        metrics: { ...metrics, status: "unavailable", reason: "quota", metrics: [] },
+      }),
+    )
+      .map((block) => block.text)
+      .join("\n");
+
+    expect(text).toContain("the provider's quota was exhausted");
+    expect(text).not.toContain("Performance score:");
+  });
+
+  it("prints no provider section when no provider ran", () => {
+    const text = buildReportOutline(buildReportSnapshot(source()))
+      .map((block) => block.text)
+      .join("\n");
+
+    expect(text).not.toContain("PageSpeed Insights (mobile)");
+    expect(text).toContain("No PageSpeed Insights run was made for this audit.");
+  });
+
+  it("formats a metric by the unit it was stored with", () => {
+    expect(
+      formatMetric({ metricKey: "a", label: "A", value: 0.05, unit: "ratio", status: "ok", reason: null }),
+    ).toBe("0.050");
+    expect(
+      formatMetric({ metricKey: "a", label: "A", value: 78, unit: "score", status: "ok", reason: null }),
+    ).toBe("78 / 100");
+    expect(
+      formatMetric({ metricKey: "a", label: "A", value: 2400, unit: "ms", status: "ok", reason: null }),
+    ).toBe("2400 ms");
+    expect(
+      formatMetric({
+        metricKey: "a",
+        label: "A",
+        value: null,
+        unit: "ms",
+        status: "unavailable",
+        reason: null,
+      }),
+    ).toBe("not measured");
   });
 });
 

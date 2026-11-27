@@ -17,6 +17,7 @@ import type {
   AuditListResult,
   AuditRow,
   FindingRow,
+  MetricRow,
   NewAuditRow,
   PageRowSummary,
   ProfilePatch,
@@ -37,6 +38,15 @@ export interface SeedFinding {
   readonly aiExplanation?: FindingRow["ai_explanation"];
 }
 
+export interface SeedMetric {
+  readonly metricKey: string;
+  readonly label?: string;
+  readonly value: number | null;
+  readonly unit?: string;
+  readonly status?: string;
+  readonly reason?: string | null;
+}
+
 export interface SeedAudit {
   readonly id?: string;
   readonly userId: string;
@@ -50,6 +60,11 @@ export interface SeedAudit {
   readonly clientName?: string | null;
   readonly projectName?: string | null;
   readonly aiStatus?: "ok" | "unavailable" | "skipped";
+  readonly metricsStatus?: "ok" | "partial" | "unavailable" | "skipped";
+  readonly metricsReason?: string | null;
+  readonly metricsStrategy?: string | null;
+  readonly metricsProviderVersion?: string | null;
+  readonly metricsMeasuredAt?: string | null;
   readonly aiModel?: string | null;
   readonly aiSummary?: AuditRow["ai_summary"];
   readonly categoryScores?: AuditRow["category_scores"];
@@ -64,6 +79,7 @@ export class InMemoryUserData implements UserData {
   /** Rows for `audit_findings` and `audit_pages`, keyed by audit id. */
   readonly findings = new Map<string, FindingRow[]>();
   readonly pages = new Map<string, PageRowSummary[]>();
+  readonly metrics = new Map<string, MetricRow[]>();
   private clock = 0;
 
   constructor(readonly now: () => Date = () => new Date()) {}
@@ -116,6 +132,11 @@ export class InMemoryUserData implements UserData {
       ai_status: seed.aiStatus ?? "skipped",
       ai_model: seed.aiModel ?? null,
       ai_summary: seed.aiSummary ?? null,
+      metrics_status: seed.metricsStatus ?? "skipped",
+      metrics_reason: seed.metricsReason ?? null,
+      metrics_strategy: seed.metricsStrategy ?? null,
+      metrics_provider_version: seed.metricsProviderVersion ?? null,
+      metrics_measured_at: seed.metricsMeasuredAt ?? null,
       started_at: null,
       completed_at: seed.completedAt ?? (terminal ? created : null),
       created_at: created,
@@ -166,6 +187,11 @@ export class InMemoryUserData implements UserData {
       ai_status: "skipped",
       ai_model: null,
       ai_summary: null,
+      metrics_status: "skipped",
+      metrics_reason: null,
+      metrics_strategy: null,
+      metrics_provider_version: null,
+      metrics_measured_at: null,
       started_at: null,
       completed_at: null,
       created_at: created,
@@ -254,6 +280,36 @@ export class InMemoryUserData implements UserData {
 
   async listPageSummaries(auditId: string): Promise<readonly PageRowSummary[]> {
     return this.pages.get(auditId) ?? [];
+  }
+
+  /** Seeds one stored measurement. `value: null` with a status is the "no number" case. */
+  seedMetric(auditId: string, seed: SeedMetric): MetricRow {
+    const row: MetricRow = {
+      id: crypto.randomUUID(),
+      audit_id: auditId,
+      page_id: null,
+      category: "performance",
+      metric_key: seed.metricKey,
+      label: seed.label ?? seed.metricKey,
+      value: seed.value,
+      unit: seed.unit ?? "ms",
+      source: "pagespeed",
+      status: seed.status ?? (seed.value === null ? "unavailable" : "ok"),
+      strategy: "MOBILE",
+      provider_version: "12.6.0",
+      measured_at: "2026-11-27T09:59:00.000Z",
+      reason: seed.reason ?? null,
+    };
+    this.metrics.set(auditId, [...(this.metrics.get(auditId) ?? []), row]);
+    return row;
+  }
+
+  async listMetrics(auditId: string): Promise<readonly MetricRow[]> {
+    // The SQL orders by (category, metric_key); a fake that returned insertion order would let a
+    // test pass on an ordering the API does not produce.
+    return [...(this.metrics.get(auditId) ?? [])].sort(
+      (a, b) => a.category.localeCompare(b.category) || a.metric_key.localeCompare(b.metric_key),
+    );
   }
 
   /** Rows the caller can see, for assertions that read like the question being asked. */

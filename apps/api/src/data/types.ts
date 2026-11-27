@@ -56,6 +56,15 @@ export interface AuditRow {
   ai_status: string;
   ai_model: string | null;
   ai_summary: AuditSummaryOutput | null;
+  /**
+   * The performance provider's own status, separate from the audit's: a scan can succeed while
+   * PageSpeed is out of quota, and the report has to be able to say exactly that.
+   */
+  metrics_status: string;
+  metrics_reason: string | null;
+  metrics_strategy: string | null;
+  metrics_provider_version: string | null;
+  metrics_measured_at: string | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -107,6 +116,27 @@ export interface FindingRow {
   page: { url: string } | null;
 }
 
+/**
+ * One stored measurement. `value` is null exactly when the provider supplied nothing, and the
+ * database refuses any other combination of `status` and `value`.
+ */
+export interface MetricRow {
+  id: string;
+  audit_id: string;
+  page_id: string | null;
+  category: string;
+  metric_key: string;
+  label: string;
+  value: number | null;
+  unit: string;
+  source: string;
+  status: string;
+  strategy: string | null;
+  provider_version: string | null;
+  measured_at: string | null;
+  reason: string | null;
+}
+
 /** The two columns a report needs from `audit_pages`: what was asked for, and what failed. */
 export interface PageRowSummary {
   url: string;
@@ -152,6 +182,13 @@ export interface UserData {
 
   /** Page URLs and their fetch error, for the "N of M pages could not be read" limitation. */
   listPageSummaries(auditId: string): Promise<readonly PageRowSummary[]>;
+
+  /**
+   * Every stored metric for one audit, whatever its source, ordered by category and key. A metric
+   * with `status: "unavailable"` is a row with no value: the report prints the absence rather than
+   * a zero it did not measure.
+   */
+  listMetrics(auditId: string): Promise<readonly MetricRow[]>;
 }
 
 /** Builds a client for one request, authorised by that request's access token. */
@@ -197,6 +234,14 @@ export interface AuditView {
     model: string | null;
     summary: AuditSummaryOutput | null;
   };
+  /** PageSpeed's status, strategy and version — the provider's facts, not an inference from gaps. */
+  metrics: {
+    status: "ok" | "partial" | "unavailable" | "skipped";
+    reason: string | null;
+    strategy: string | null;
+    providerVersion: string | null;
+    measuredAt: string | null;
+  };
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -216,6 +261,19 @@ export interface FindingView {
   pageUrl: string | null;
   /** Present only when the audit's AI step produced one for this finding. */
   aiExplanation: AIRecommendationOutput | null;
+}
+
+export interface MetricView {
+  id: string;
+  category: string;
+  metricKey: string;
+  label: string;
+  value: number | null;
+  unit: string;
+  source: string;
+  status: string;
+  strategy: string | null;
+  reason: string | null;
 }
 
 export function toProfileView(row: ProfileRow): ProfileView {
@@ -269,6 +327,28 @@ function explanation(value: unknown): AIRecommendationOutput | null {
   return parsed.success ? parsed.data : null;
 }
 
+const METRIC_STATUSES = ["ok", "unavailable", "partial"] as const;
+const METRICS_STATUSES = ["ok", "partial", "unavailable", "skipped"] as const;
+
+function oneOf<T extends string>(values: readonly T[], value: string, fallback: T): T {
+  return (values as readonly string[]).includes(value) ? (value as T) : fallback;
+}
+
+export function toMetricView(row: MetricRow): MetricView {
+  return {
+    id: row.id,
+    category: row.category,
+    metricKey: row.metric_key,
+    label: row.label,
+    value: row.value,
+    unit: row.unit,
+    source: row.source,
+    status: oneOf(METRIC_STATUSES, row.status, "unavailable"),
+    strategy: row.strategy,
+    reason: row.reason,
+  };
+}
+
 export function toFindingView(row: FindingRow): FindingView {
   return {
     id: row.id,
@@ -308,6 +388,13 @@ export function toAuditView(row: AuditRow): AuditView {
     partial: row.was_partial,
     overallScore: row.overall_score,
     categoryScores: scoreCategories(row.category_scores),
+    metrics: {
+      status: oneOf(METRICS_STATUSES, row.metrics_status, "skipped"),
+      reason: row.metrics_reason,
+      strategy: row.metrics_strategy,
+      providerVersion: row.metrics_provider_version,
+      measuredAt: row.metrics_measured_at,
+    },
     ai: {
       status: aiStatus(row.ai_status),
       model: row.ai_model,

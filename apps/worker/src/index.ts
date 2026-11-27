@@ -5,12 +5,14 @@
  * while unable to do its job is a green light nobody should trust.
  *
  * What it does with a job: validates the target, crawls a bounded set of pages, runs the
- * deterministic rules, scores the result, asks a model to explain it and stores all of it. A page
- * it could not read makes the audit `partial`; a site it could not reach fails it, in words,
- * without inventing a score; an explanation that cannot be produced is recorded as absent.
+ * deterministic rules, asks PageSpeed for performance metrics, scores the result, asks a model to
+ * explain it and stores all of it. A page it could not read, or a provider that did not answer,
+ * makes the audit `partial`; a site it could not reach fails it, in words, without inventing a
+ * score; an explanation, or a metric, that cannot be produced is recorded as absent.
  */
 
 import { createHttpAiProvider } from "@siteaudit/ai-explain";
+import { createPagespeedClient, DEFAULT_STRATEGY } from "@siteaudit/pagespeed";
 import { AUDIT_JOB_ATTEMPTS, createBullMqAuditWorker } from "@siteaudit/queue";
 import { assertSafeTarget } from "@siteaudit/validation";
 
@@ -56,7 +58,21 @@ const ai =
         model: config.LLM_MODEL,
       };
 
-const steps = createScanSteps({ data, ...(ai === undefined ? {} : { ai }) });
+// Metrics are optional for the same reason: without a key nothing is claimed, `metrics_status`
+// stays `skipped`, and the report says performance was measured by our own crawl.
+const pagespeed =
+  config.PAGESPEED_API_KEY === undefined
+    ? undefined
+    : {
+        client: createPagespeedClient({ apiKey: config.PAGESPEED_API_KEY }),
+        strategy: DEFAULT_STRATEGY,
+      };
+
+const steps = createScanSteps({
+  data,
+  ...(ai === undefined ? {} : { ai }),
+  ...(pagespeed === undefined ? {} : { pagespeed }),
+});
 
 const process_ = createProcessor({
   data,
@@ -84,8 +100,9 @@ worker.on("ready", () =>
   log("ready", {
     concurrency: config.AUDIT_CONCURRENCY,
     steps: steps.length,
-    // Says whether explanations are configured, never which model or which key.
+    // Says whether a provider is configured, never which model or which key.
     ai: ai === undefined ? "absent" : "configured",
+    pagespeed: pagespeed === undefined ? "absent" : "configured",
   }),
 );
 worker.on("error", (error) => log("worker error", { error: error.message }));

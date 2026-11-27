@@ -16,6 +16,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { AuditPageRow } from "@siteaudit/crawler";
 import type { ScoreResult } from "@siteaudit/audit-rules";
 import type { AIRecommendationOutput, AuditSummaryOutput } from "@siteaudit/validation";
+import { toMetricRows, type PerformanceReport } from "@siteaudit/pagespeed";
 import type { NewFindingRow } from "./finding-rows.js";
 
 import {
@@ -83,6 +84,15 @@ export interface WorkerData {
   saveExplanations(auditId: string, explanations: ExplanationRows): Promise<void>;
   /** Records that AI produced nothing, and why, without touching the deterministic results. */
   markAiUnavailable(auditId: string): Promise<void>;
+  /**
+   * Stores a provider's measurements and the audit's `metrics_status`, `metrics_reason`, strategy,
+   * provider version and measurement time.
+   *
+   * Metrics live in their own table with their own status, so an unavailable one is a row without a
+   * number rather than an absence a report has to interpret. The audit's score and findings are in
+   * different columns: this call cannot reach them.
+   */
+  saveMetrics(auditId: string, report: PerformanceReport): Promise<void>;
 }
 
 export interface ExplanationRows {
@@ -253,6 +263,36 @@ export function createSupabaseWorkerData(options: SupabaseWorkerDataOptions): Wo
         .eq("id", auditId)
         .in("status", ["running", "queued"]);
       if (error) failed("audits.markAiUnavailable", error);
+    },
+
+    async saveMetrics(auditId, report) {
+      // Replace rather than append: a retried audit must not end up with two of every metric.
+      const { error: deleteError } = await client
+        .from("audit_metrics")
+        .delete()
+        .eq("audit_id", auditId)
+        .eq("source", "pagespeed");
+      if (deleteError) failed("audit_metrics.delete", deleteError);
+
+      const rows = toMetricRows(report).map((row) => ({ ...row, audit_id: auditId, page_id: null }));
+      for (let index = 0; index < rows.length; index += 200) {
+        const chunk = rows.slice(index, index + 200);
+        const { error } = await client.from("audit_metrics").insert(chunk);
+        if (error) failed("audit_metrics.insert", error);
+      }
+
+      const { error } = await client
+        .from("audits")
+        .update({
+          metrics_status: report.status,
+          metrics_reason: report.reason,
+          metrics_strategy: report.strategy,
+          metrics_provider_version: report.providerVersion,
+          metrics_measured_at: report.measuredAt,
+        })
+        .eq("id", auditId)
+        .in("status", ["running", "queued"]);
+      if (error) failed("audits.saveMetrics", error);
     },
 
     async recordUsage({ userId, auditId, kind, quantity }) {

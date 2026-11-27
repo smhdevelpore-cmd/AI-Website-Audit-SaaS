@@ -31,7 +31,7 @@ import {
 
 import { currentData, currentUser, requireAuth, type AuthContext } from "../auth/middleware.js";
 import { requireOwnedAudit } from "../data/audits.js";
-import { bySeverity, toAuditView, toFindingView } from "../data/types.js";
+import { bySeverity, toAuditView, toFindingView, toMetricView } from "../data/types.js";
 import { validateBody, validateQuery } from "../http/validate.js";
 import { USAGE_WINDOW_MS, type AuditLimits } from "../limits.js";
 import { buildAuditReport, reportFilename } from "../report.js";
@@ -206,6 +206,46 @@ export function auditRouter(auth: AuthContext, deps: AuditRouterDeps): Router {
           status: audit.ai_status === "ok" || audit.ai_status === "unavailable" ? audit.ai_status : "skipped",
           model: audit.ai_model,
         },
+      },
+    });
+  });
+
+  /**
+   * The provider's measurements, with their own status and source.
+   *
+   * `meta` carries the provider's status, its strategy and the Lighthouse version that produced the
+   * numbers. A page that lists metrics without those cannot tell a mobile run from a desktop one,
+   * or our crawl from Google's.
+   */
+  router.get("/:id/metrics", requireAuth(auth), async (request, response) => {
+    const user = currentUser(request);
+    const data = currentData(request);
+    const id = request.params["id"];
+    if (typeof id !== "string") {
+      throw new AppError("not_found", "No audit with that id.");
+    }
+
+    const audit = await requireOwnedAudit(data, id, user.id);
+    const rows = await data.listMetrics(audit.id);
+
+    const counts: Record<string, number> = { ok: 0, partial: 0, unavailable: 0 };
+    for (const row of rows) {
+      if (row.status in counts) counts[row.status] = (counts[row.status] ?? 0) + 1;
+    }
+
+    response.setHeader("Cache-Control", "no-store");
+    response.json({
+      success: true,
+      data: rows.map(toMetricView),
+      meta: {
+        provider: "pagespeed",
+        status: toAuditView(audit).metrics.status,
+        counts,
+        // A reason exists only when the provider did not answer fully.
+        reason: audit.metrics_reason,
+        strategy: audit.metrics_strategy,
+        providerVersion: audit.metrics_provider_version,
+        measuredAt: audit.metrics_measured_at,
       },
     });
   });

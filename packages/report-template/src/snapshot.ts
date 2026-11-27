@@ -14,7 +14,7 @@ import type { AIRecommendationOutput, AuditSummaryOutput } from "@siteaudit/vali
 import type { AuditCategory, CategoryScore, Severity } from "@siteaudit/shared-types";
 
 /** Bumped when the layout or the set of sections changes. Stored with every rendered PDF. */
-export const REPORT_TEMPLATE_VERSION = "report-v1";
+export const REPORT_TEMPLATE_VERSION = "report-v2";
 
 export interface ReportFinding {
   readonly issueCode: string;
@@ -31,6 +31,31 @@ export interface ReportFinding {
 }
 
 export type AiStatus = "ok" | "unavailable" | "skipped";
+export type MetricsStatus = "ok" | "partial" | "unavailable" | "skipped";
+
+/** One PageSpeed measurement as stored. A null value is an absence with a status, not a zero. */
+export interface ReportMetric {
+  readonly metricKey: string;
+  readonly label: string;
+  readonly value: number | null;
+  readonly unit: string;
+  readonly status: string;
+  readonly reason: string | null;
+}
+
+/**
+ * The provider block: only present when a provider ran. `status` and `reason` are the provider's
+ * facts, so a section can say "PageSpeed was out of quota" instead of showing a table of dashes
+ * that a reader would interpret as zeros.
+ */
+export interface ReportMetrics {
+  readonly status: MetricsStatus;
+  readonly reason: string | null;
+  readonly strategy: string | null;
+  readonly providerVersion: string | null;
+  readonly measuredAt: string | null;
+  readonly metrics: readonly ReportMetric[];
+}
 
 export interface ReportAudit {
   readonly id: string;
@@ -58,6 +83,8 @@ export interface ReportSource {
   readonly pagesUnreadable: number;
   readonly branding?: { readonly agencyName: string | null };
   readonly rulesVersion?: string | null;
+  /** Absent when the audit has no provider metrics at all, which is different from unavailable. */
+  readonly metrics?: ReportMetrics | null;
 }
 
 export interface ReportSnapshot {
@@ -72,11 +99,15 @@ export interface ReportSnapshot {
   readonly summary: AuditSummaryOutput | null;
   readonly limitations: readonly string[];
   readonly methodology: readonly string[];
+  /** Present only when the provider ran; never fabricated to fill the section. */
+  readonly metrics: ReportMetrics | null;
   readonly versions: {
     readonly template: string;
     readonly scoring: string | null;
     readonly rules: string | null;
     readonly aiModel: string | null;
+    /** The Lighthouse version that produced the metrics, when there are any. */
+    readonly provider: string | null;
   };
 }
 
@@ -162,7 +193,42 @@ function limitationsFor(source: ReportSource): string[] {
     limitations.push("This audit was produced without AI explanations.");
   }
 
+  const metrics = source.metrics ?? null;
+  if (metrics === null || metrics.status === "skipped") {
+    limitations.push(
+      "Performance figures come from our own crawl. No PageSpeed Insights run was made for this audit.",
+    );
+  } else if (metrics.status === "unavailable") {
+    limitations.push(
+      `PageSpeed Insights did not return a performance measurement for this audit (${providerReason(metrics.reason)}). No performance metrics are reported.`,
+    );
+  } else if (metrics.status === "partial") {
+    limitations.push(
+      "PageSpeed Insights returned only some of its metrics. The missing ones are shown as unavailable rather than as zero.",
+    );
+  }
+
   return [...limitations, ...ALWAYS_TRUE_LIMITATIONS];
+}
+
+/** Turns a provider code into a phrase a client can read. Never a stack trace, never prose we invent. */
+export function providerReason(reason: string | null): string {
+  switch (reason) {
+    case "quota":
+      return "the provider's quota was exhausted";
+    case "timeout":
+      return "the provider did not answer in time";
+    case "invalid_url":
+      return "the provider refused the address";
+    case "http_error":
+      return "the provider returned an error";
+    case "malformed_response":
+      return "the provider's answer could not be read";
+    case "not_configured":
+      return "no provider key was configured";
+    default:
+      return "no reason was recorded";
+  }
 }
 
 export function buildReportSnapshot(
@@ -183,11 +249,13 @@ export function buildReportSnapshot(
     summary: source.audit.aiStatus === "ok" ? source.audit.aiSummary : null,
     limitations: limitationsFor(source),
     methodology: METHODOLOGY,
+    metrics: source.metrics ?? null,
     versions: {
       template: REPORT_TEMPLATE_VERSION,
       scoring: source.audit.scoringVersion,
       rules: source.rulesVersion ?? null,
       aiModel: source.audit.aiStatus === "ok" ? source.audit.aiModel : null,
+      provider: source.metrics?.providerVersion ?? null,
     },
   };
 }

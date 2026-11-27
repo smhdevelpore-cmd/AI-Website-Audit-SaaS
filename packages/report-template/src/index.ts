@@ -13,6 +13,7 @@ export {
   listedFindings,
   MAX_LISTED_FINDINGS,
   METHODOLOGY,
+  providerReason,
   REPORT_TEMPLATE_VERSION,
   SEVERITY_LABELS,
   severityCounts,
@@ -20,5 +21,5 @@ export {
 } from "./snapshot.js";
 export type { AiStatus, ReportAudit, ReportFinding, ReportSnapshot, ReportSource } from "./snapshot.js";
 
-export { buildReportOutline, renderReportPdf, sanitizePdfText, wrapText } from "./pdf.js";
+export { buildReportOutline, formatMetric, renderReportPdf, sanitizePdfText, wrapText } from "./pdf.js";
 export type { OutlineBlock, OutlineStyle, RenderOptions } from "./pdf.js";

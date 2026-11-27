@@ -1,27 +1,34 @@
 /**
- * The steps a real audit runs: crawl → rules → score → explain → persist (TRD §6).
+ * The steps a real audit runs: crawl → rules → measure → score → explain → persist (TRD §6).
  *
- * The order matters in two places:
+ * The order matters in three places:
  *
+ *  - **Measuring before scoring.** PageSpeed's metrics are stored before the score is written, so a
+ *    report can show both and a reader can see which is which. They do **not** feed the score: a
+ *    third party's quota must never move a number we claim as ours (see `docs/PROVIDERS.md`).
  *  - **Scoring before explaining.** The summary the model writes may mention the score, and the
  *    score must exist before anything can describe it. Scoring no longer finishes the audit, so
- *    the AI step cannot be mistaken for the part that decides the outcome.
+ *    neither the provider nor the model can be mistaken for the part that decides the outcome.
  *  - **Explaining before persisting.** A provider that is slow or down delays the audit, never
- *    changes it: `explain` records what it got and the audit finishes either way.
- *
- * The PageSpeed provider (Phase 8) slots in between `rules` and `scoring`, which is why scoring
- * reads the rules outcome rather than re-running anything.
+ *    changes it: each step records what it got and the audit finishes either way.
  */
 
 import { crawlSite, toPageRows, type CrawlOptions, type CrawlSummary } from "@siteaudit/crawler";
 import { runRules, scoreAudit, type RuleOutcome, type ScoreResult } from "@siteaudit/audit-rules";
 import { explainAudit, type AiProvider, type ExplanationFinding } from "@siteaudit/ai-explain";
+import {
+  unavailableReport,
+  type PagespeedClient,
+  type PagespeedStrategy,
+  type ProviderStatus,
+} from "@siteaudit/pagespeed";
 
 import type { WorkerData } from "./data.js";
 import { toFindingRows } from "./finding-rows.js";
 import { FatalScanError, type ScanContext, type ScanStep } from "./pipeline.js";
 
 const CRAWL_KEY = "crawl";
+const METRICS_KEY = "metrics";
 const RULES_KEY = "rules";
 const SCORES_KEY = "scores";
 const PAGE_IDS_KEY = "pageIds";
@@ -30,6 +37,11 @@ export interface AiStepOptions {
   readonly provider: AiProvider;
   readonly model: string;
   readonly timeoutMs?: number;
+}
+
+export interface PagespeedStepOptions {
+  readonly client: PagespeedClient;
+  readonly strategy?: PagespeedStrategy;
 }
 
 export interface ScanStepsDeps {
@@ -44,6 +56,11 @@ export interface ScanStepsDeps {
    * `ai_status` at its default `skipped` and the report says there are no explanations.
    */
   readonly ai?: AiStepOptions;
+  /**
+   * Absent when no `PAGESPEED_API_KEY` is configured. The audit's `metrics_status` then stays
+   * `skipped`, and the report says performance was measured by our crawl only.
+   */
+  readonly pagespeed?: PagespeedStepOptions;
 }
 
 function requireState<T>(context: ScanContext, key: string): T {
@@ -129,6 +146,45 @@ export function createScanSteps(deps: ScanStepsDeps): readonly ScanStep[] {
       );
 
       context.state.set(RULES_KEY, outcome);
+      return "continue";
+    },
+  };
+
+  const performance: ScanStep = {
+    stage: "performance",
+    async run(context: ScanContext) {
+      const options = deps.pagespeed;
+      if (options === undefined) {
+        // No key configured: nothing is claimed, and `metrics_status` stays `skipped`.
+        return "continue";
+      }
+
+      let report;
+      try {
+        report = await options.client.run(context.audit.url, context.signal);
+      } catch (error) {
+        // `run` is written not to throw for a provider's bad day. If it does, that is our bug —
+        // and an audit must not fail because of it. The metrics are recorded as unavailable.
+        console.error("[worker] pagespeed client threw", {
+          auditId: context.audit.id,
+          error: error instanceof Error ? error.name : "unknown",
+        });
+        report = unavailableReport("http_error", options.strategy ?? "MOBILE");
+      }
+
+      await deps.data.saveMetrics(context.audit.id, report);
+
+      await deps.data
+        .recordUsage({
+          userId: context.audit.user_id,
+          auditId: context.audit.id,
+          kind: "provider_call",
+          quantity: 1,
+        })
+        // The meter is not allowed to fail an audit that already got its answer.
+        .catch(() => undefined);
+
+      context.state.set(METRICS_KEY, report.status);
       return "continue";
     },
   };
@@ -221,13 +277,20 @@ export function createScanSteps(deps: ScanStepsDeps): readonly ScanStep[] {
       const summary = requireState<CrawlSummary>(context, CRAWL_KEY);
       const pagesScanned = summary.pages.filter((page) => page.parsed !== null).length;
       const somePagesFailed = summary.pages.some((page) => page.error !== null);
+
+      // No provider configured at all is not a partial audit: it is an audit without provider
+      // metrics, and `metrics_status` already says `skipped`.
+      const metrics = context.state.get(METRICS_KEY) as ProviderStatus | undefined;
+      const metricsIncomplete = metrics === "unavailable" || metrics === "partial";
+
       return {
-        // A page we could not read makes the totals cover only part of the site (TRD §6).
-        status: somePagesFailed ? "partial" : "completed",
+        // A page we could not read, or a provider that did not answer, makes the totals cover only
+        // part of what this audit is meant to show (TRD §6). The findings and the score stand.
+        status: somePagesFailed || metricsIncomplete ? "partial" : "completed",
         pagesScanned,
       };
     },
   };
 
-  return [crawling, rules, scoring, ai, persisting];
+  return [crawling, rules, performance, scoring, ai, persisting];
 }

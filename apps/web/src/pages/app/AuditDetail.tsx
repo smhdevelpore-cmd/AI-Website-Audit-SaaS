@@ -19,9 +19,12 @@ import {
   useAudit,
   useCancelAudit,
   useFindings,
+  useMetrics,
   type AiStatus,
   type Audit,
   type Finding,
+  type Metric,
+  type MetricsStatus,
 } from "../../lib/audits.js";
 import { Badge } from "../../components/ui/Badge.js";
 import { Button } from "../../components/ui/Button.js";
@@ -55,6 +58,42 @@ function aiNote(status: AiStatus): string | null {
     return "This audit was produced without AI-written explanations. The findings and the score are complete without them.";
   }
   return null;
+}
+
+/** A stored number with the unit it was measured in. A gap is printed as a gap. */
+function formatMetricValue(metric: Metric): string {
+  if (metric.value === null) return "not measured";
+  if (metric.unit === "ratio") return metric.value.toFixed(3);
+  if (metric.unit === "score") return `${Math.round(metric.value)} / 100`;
+  if (metric.unit === "ms") return `${Math.round(metric.value)} ms`;
+  return String(metric.value);
+}
+
+/** What the provider status means, in a sentence a client can act on. */
+function metricsNote(status: MetricsStatus, reason: string | null): string {
+  if (status === "unavailable") {
+    return `PageSpeed Insights did not return a measurement${
+      reason === null ? "" : ` (${reason.replace(/_/g, " ")})`
+    }. The score and findings above do not depend on it.`;
+  }
+  if (status === "skipped") {
+    return "This audit was made without Google PageSpeed Insights. Performance figures come from our own crawl, and the score is ours.";
+  }
+  if (status === "partial") {
+    return "Some of PageSpeed's metrics did not come back. The missing ones are shown as not measured rather than as zero.";
+  }
+  return "Measured by Google PageSpeed Insights, with the strategy named below. These figures are Google's; the score above is ours.";
+}
+
+function MetricCard({ metric }: { readonly metric: Metric }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-t border-line py-2 first:border-t-0">
+      <dt className="text-sm text-muted">{metric.label}</dt>
+      <dd className={metric.value === null ? "text-sm text-muted" : "text-sm font-medium text-ink"}>
+        {formatMetricValue(metric)}
+      </dd>
+    </div>
+  );
 }
 
 function FindingCard({ finding }: { readonly finding: Finding }) {
@@ -109,6 +148,7 @@ export function AuditDetail() {
   const audit = query.data;
   const finished = audit !== undefined && (audit.status === "completed" || audit.status === "partial");
   const findingsQuery = useFindings(auditId, finished);
+  const metricsQuery = useMetrics(auditId, finished);
   const score = audit?.overallScore ?? null;
   const weightedCategories = (audit?.categoryScores ?? []).filter((entry) => entry.weight > 0);
 
@@ -170,6 +210,13 @@ export function AuditDetail() {
   // An older API build may not send `ai`; the page then says nothing about explanations rather
   // than rendering "undefined" where a status should be.
   const ai = audit.ai ?? { status: "skipped" as const, model: null, summary: null };
+  const metrics = audit.metrics ?? {
+    status: "skipped" as const,
+    reason: null,
+    strategy: null,
+    providerVersion: null,
+    measuredAt: null,
+  };
   const status = presentStatus(audit.status);
   const stage = presentStage(audit.stage);
   const live = audit.status === "queued" || audit.status === "running";
@@ -362,6 +409,50 @@ export function AuditDetail() {
           </div>
         )}
       </section>
+
+      {finished ? (
+        <section
+          aria-labelledby="performance-heading"
+          className="rounded-[var(--radius-card)] border border-line bg-surface p-5"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="performance-heading" className="text-base font-semibold text-ink">
+              Measured performance
+            </h2>
+            {metricsQuery.data?.meta.strategy === null || metricsQuery.data === undefined ? null : (
+              <p className="text-sm text-muted">
+                {metricsQuery.data.meta.strategy.toLowerCase()}
+                {metricsQuery.data.meta.providerVersion === null
+                  ? ""
+                  : ` · Lighthouse ${metricsQuery.data.meta.providerVersion}`}
+              </p>
+            )}
+          </div>
+
+          <p className="mt-3 rounded-[var(--radius-control)] bg-tint-neutral px-3 py-2 text-sm text-ink">
+            {metricsNote(
+              metricsQuery.data?.meta.status ?? metrics.status,
+              metricsQuery.data?.meta.reason ?? metrics.reason,
+            )}
+          </p>
+
+          {metricsQuery.isPending ? (
+            <p className="mt-3 text-sm text-muted" role="status">
+              Loading measurements…
+            </p>
+          ) : metricsQuery.isError ? (
+            <p role="alert" className="mt-3 text-sm text-critical-strong">
+              The measurements could not be loaded. The score and findings above are unaffected.
+            </p>
+          ) : (metricsQuery.data?.metrics.length ?? 0) > 0 ? (
+            <dl className="mt-4 flex flex-col">
+              {(metricsQuery.data?.metrics ?? []).map((metric) => (
+                <MetricCard key={metric.id} metric={metric} />
+              ))}
+            </dl>
+          ) : null}
+        </section>
+      ) : null}
 
       {finished ? (
         <section

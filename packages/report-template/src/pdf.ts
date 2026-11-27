@@ -19,8 +19,10 @@ import { PDFDocument, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib"
 import {
   CATEGORY_LABELS,
   MAX_LISTED_FINDINGS,
+  providerReason,
   SEVERITY_LABELS,
   type ReportFinding,
+  type ReportMetric,
   type ReportSnapshot,
 } from "./snapshot.js";
 
@@ -134,6 +136,56 @@ export interface OutlineBlock {
   readonly indent?: number;
 }
 
+/** A stored number with the unit it was measured in. A null value is printed as "not measured". */
+export function formatMetric(metric: ReportMetric): string {
+  if (metric.value === null) return "not measured";
+  const value =
+    metric.unit === "ratio"
+      ? metric.value.toFixed(3)
+      : metric.unit === "score"
+        ? String(Math.round(metric.value))
+        : Math.round(metric.value);
+  switch (metric.unit) {
+    case "ms":
+      return `${value} ms`;
+    case "ratio":
+      return `${value}`;
+    case "score":
+      return `${value} / 100`;
+    default:
+      return String(value);
+  }
+}
+
+function metricBlocks(metrics: NonNullable<ReportSnapshot["metrics"]>): OutlineBlock[] {
+  const strategy = metrics.strategy === null ? "" : ` (${metrics.strategy.toLowerCase()})`;
+  const blocks: OutlineBlock[] = [
+    { style: "heading", text: `Performance measured by PageSpeed Insights${strategy}` },
+  ];
+
+  if (metrics.status === "unavailable") {
+    blocks.push({
+      style: "body",
+      text: `No performance measurement was returned for this audit: ${providerReason(metrics.reason)}. Nothing is shown rather than a number we did not receive.`,
+    });
+    return blocks;
+  }
+
+  for (const metric of metrics.metrics) {
+    blocks.push({
+      style: "body",
+      text: `${metric.label}: ${formatMetric(metric)}`,
+      indent: 8,
+    });
+  }
+
+  blocks.push({
+    style: "small",
+    text: "These figures are Google's, from a Lighthouse run against one page. They are not our own measurement and are not part of the score above.",
+  });
+  return blocks;
+}
+
 function findingBlocks(finding: ReportFinding): OutlineBlock[] {
   const blocks: OutlineBlock[] = [
     // A report is printed in black and white as often as not: severity is a word, never a colour.
@@ -195,6 +247,10 @@ export function buildReportOutline(snapshot: ReportSnapshot): OutlineBlock[] {
     const label = CATEGORY_LABELS[entry.category] ?? entry.category;
     const score = entry.score === null ? "N/A" : String(entry.score);
     blocks.push({ style: "body", text: `${label} (${entry.weight}% of the score): ${score}` });
+  }
+
+  if (snapshot.metrics !== null && snapshot.metrics.status !== "skipped") {
+    blocks.push(...metricBlocks(snapshot.metrics));
   }
 
   blocks.push({ style: "heading", text: "Issues by severity" });
@@ -266,6 +322,7 @@ export function buildReportOutline(snapshot: ReportSnapshot): OutlineBlock[] {
       snapshot.versions.rules === null ? null : `rules ${snapshot.versions.rules}`,
       snapshot.versions.scoring === null ? null : `scoring ${snapshot.versions.scoring}`,
       snapshot.versions.aiModel === null ? null : `explanations ${snapshot.versions.aiModel}`,
+      snapshot.versions.provider === null ? null : `pagespeed ${snapshot.versions.provider}`,
       `generated ${formatDate(snapshot.generatedAt)}`,
     ]
       .filter((part): part is string => part !== null)

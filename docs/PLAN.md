@@ -18,8 +18,9 @@ Sliced so each phase ends with something that can be run and judged, and so the 
 | **5 · Bounded crawler** | HTTP fetch pinned to validated addresses, redirect revalidation, size/time limits; robots.txt, sitemap and link discovery under a page/depth cap; HTML parser and page snapshots | tests: redirect to metadata, redirect loop, oversized body, rebind simulation, robots and sitemap policy, page/depth/concurrency caps, fixture crawl |
 | **6 · Rules + scoring** | rule engine over the parsed pages, normalisation and deduplication, deterministic scoring with the FR-13 weights, worker pipeline wired end to end | fixture pages produce stable findings and a reproducible score; a finished audit carries its score and the version that produced it |
 | **7 · AI + PDF** | evidence-only explanations, schema validation, PDF from stored snapshot | AI failure leaves deterministic findings intact; PDF renders from the snapshot alone |
+| **8 · Performance provider** | PageSpeed client, parser, metrics in their own table with their own status, provider section in the report and on the audit page | a provider failure is a `partial` audit with its deterministic findings and score intact, and the absence is labelled |
 
-Phases 0–7 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
+Phases 0–8 are implemented. Phases 1 and 2 were written before this plan existed; see the note at
 the end.
 
 ### Phase numbering changed
@@ -53,11 +54,17 @@ runs `crawling → rules → scoring` and an audit can complete with a score. Th
 and the AI explanation are still absent, so `performance` is measured by the crawler (response time,
 document weight) rather than by Lighthouse — labelled as ours everywhere it appears.
 
+Phase 8 arrived as the PageSpeed provider. The worker now runs
+`crawling → rules → performance → scoring → ai → persisting`; the provider's metrics live in
+`audit_metrics` under a status of their own, the report prints them as Google's and the audit page
+shows them beside the score. As decided below, they do **not** feed the score — an outage cannot
+reprice an audit.
+
 Phase 7 arrived as explanations and the report. The worker now runs
 `crawling → rules → scoring → ai → persisting`, the audit page lists the findings, and a finished
 audit has a downloadable PDF. The AI step is optional at boot: with no `LLM_API_KEY` it leaves
-`ai_status = 'skipped'` and the report says so instead of showing an empty section. PageSpeed is
-still absent — it is Phase 8, and `performance` is still measured by our crawl.
+`ai_status = 'skipped'` and the report says so instead of showing an empty section. PageSpeed
+arrived in Phase 8; the phase's own record is above.
 
 ## What exists now
 
@@ -66,7 +73,8 @@ still absent — it is Phase 8, and `performance` is still measured by our crawl
   `POST /api/v1/audits/validate`, and the audit endpoints: `POST /api/v1/audits` (validate,
   limit, persist, enqueue), `GET /api/v1/audits` (pagination, filter, search),
   `GET /api/v1/audits/:id`, `GET /api/v1/audits/:id/findings` (worst first, with AI
-  explanations), `GET /api/v1/audits/:id/report.pdf` (rendered from stored rows) and
+  explanations), `GET /api/v1/audits/:id/metrics` (PageSpeed's numbers with their own status),
+  `GET /api/v1/audits/:id/report.pdf` (rendered from stored rows) and
   `DELETE /api/v1/audits/:id` (queued audits only).
 - `apps/web` — Tailwind + React: landing page, sign in / sign up / password reset, and a protected
   shell (overview, audit history, settings) that calls the API with the session's own token.
@@ -74,8 +82,9 @@ still absent — it is Phase 8, and `performance` is still measured by our crawl
   where they exist) and a download button for the PDF.
   See [`docs/UI.md`](UI.md).
 - `apps/worker` — BullMQ consumer: claims an audit (`queued → running`), revalidates the target,
-  records usage, then crawls, runs the rules, scores the result and asks a model to explain it
-  (`crawling → rules → scoring → ai → persisting`).
+  records usage, then crawls, runs the rules, asks PageSpeed for performance metrics, scores the
+  result and asks a model to explain it
+  (`crawling → rules → performance → scoring → ai → persisting`).
   A page it could not read makes the audit `partial`; a site it could not reach fails it without a
   score. See [`docs/QUEUES.md`](QUEUES.md). Retries are classified (infrastructure only), every write is conditional, and every stored
   message is generated from a code. See [`docs/QUEUES.md`](QUEUES.md).
@@ -94,6 +103,8 @@ still absent — it is Phase 8, and `performance` is still measured by our crawl
 - `packages/audit-rules` — the rule catalog (`rules-v1`: 30 rules over seven categories), the
   engine and the scorer. Every finding is a code plus evidence; the score is a pure function of the
   findings. See [`docs/RULES.md`](RULES.md).
+- `packages/pagespeed` — the PageSpeed Insights client and parser: eight metrics, five
+  opportunities, one reason per failure. See [`docs/PROVIDERS.md`](PROVIDERS.md).
 - `packages/ai-explain` — the explanation step: the prompt, its bounds, the result contract, and an
   HTTP provider. No finding, severity or score can come out of it. See
   [`docs/AI-EXPLAIN.md`](AI-EXPLAIN.md).
@@ -111,8 +122,10 @@ still absent — it is Phase 8, and `performance` is still measured by our crawl
    not own can still reach a private network. The network-level restriction the deployment must
    apply is written down in [`docs/CRAWLER.md`](CRAWLER.md) §5.4.
 2. **Lighthouse/PageSpeed as a single point of failure.** Quota, latency and price are outside
-   our control. The provider must be able to fail into a `partial` audit, never into a fabricated
-   score.
+   our control. Phase 8 makes the failure harmless: the provider has its own status and reason, a
+   missing metric is a stored absence rather than a zero, a refusal marks the audit `partial`, and
+   the score never reads a provider number. What remains is cost: one call per audit, and a quota
+   that will run out on a busy day.
 3. **AI drifting into invention.** Every prompt carries only stored evidence, the output is
    schema-validated, has no numeric field, and a recommendation for an issue code the audit does
    not have rejects the whole reply. What remains is fluent prose that is wrong *within* those
@@ -127,6 +140,20 @@ still absent — it is Phase 8, and `performance` is still measured by our crawl
 6. **Scope creep.** The non-goals list in PRD §4 is the guard. Anything not on it waits.
 7. **Bus factor of one.** Migrations, env docs and the runbook stay in the repo so the project
    survives a handover.
+
+## Decisions made in Phase 8
+
+| Decision | Why |
+|---|---|
+| Provider metrics do **not** feed the score | A `429` would otherwise reprice every audit. The deviation from FR-13's intent is recorded in `docs/PROVIDERS.md`, with the version bump that would change it (`rules-v2`) |
+| The provider has a status at two levels: the call and the audit | "PageSpeed returned five of eight" and "PageSpeed refused" are different facts, and a report that showed one as the other would be describing the wrong thing |
+| A missing metric is a row with `value: null` and a reason | The Phase 2 constraint already refused an unavailable metric with a number; Phase 8 gives that row a strategy and a cause so a reader can act on it |
+| A provider failure makes the audit `partial` | `partial` has meant "covers only part of what this audit is meant to show" since Phase 6. A missing performance section is exactly that, one level up |
+| No provider configured is `completed`, not `partial` | Nothing promised was missed, and `metrics_status = 'skipped'` says so. Making it partial would devalue the label for the case where something really did fail |
+| `drop index audit_metrics_scope_key` and replace it | The Phase 2 index deduplicated on (audit, page, key) and would have refused a mobile run and a desktop run of the same metric. Strategies are different measurements |
+| The key travels in `X-Goog-Api-Key` | Google accepts both; only one of them keeps a billable secret out of URLs that proxies and error trackers copy |
+| The client resolves for a refusal and rejects only for a bug | The pipeline's retry policy is about infrastructure. A third party's bad day must become a stored absence, not a retried job |
+| `raw` is in the schema and unused | TRD §10 asks for a selected raw response. The eight numbers are extracted into typed columns, and a full Lighthouse JSON is megabytes; the column is bounded and waiting, and this is written down rather than implied |
 
 ## Decisions made in Phase 7
 

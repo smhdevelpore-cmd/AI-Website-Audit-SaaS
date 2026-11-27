@@ -40,6 +40,11 @@ function seedFinishedAudit(id = AUDIT_ID): void {
     scoringVersion: "rules-v1",
     pagesScanned: 6,
     completedAt: "2026-11-27T10:01:00.000Z",
+    metricsStatus: "partial",
+    metricsStrategy: "MOBILE",
+    metricsProviderVersion: "12.6.0",
+    metricsMeasuredAt: "2026-11-27T10:00:30.000Z",
+    metricsReason: null,
     categoryScores: [
       { category: "seo", score: 76, weight: 25 },
       { category: "technical", score: 88, weight: 20 },
@@ -50,6 +55,26 @@ function seedFinishedAudit(id = AUDIT_ID): void {
   store.seedPage(id, "https://example.com/");
   for (let index = 0; index < 5; index += 1) store.seedPage(id, `https://example.com/page-${index}`);
   store.seedPage(id, "https://example.com/paper", "non_html");
+
+  store.seedMetric(id, {
+    metricKey: "performance-score",
+    label: "Performance score",
+    value: 72,
+    unit: "score",
+  });
+  store.seedMetric(id, {
+    metricKey: "largest-contentful-paint",
+    label: "Largest Contentful Paint",
+    value: 2100,
+  });
+  // The provider did not return this one: no value, and a status that says so.
+  store.seedMetric(id, {
+    metricKey: "interaction-to-next-paint",
+    label: "Interaction to Next Paint",
+    value: null,
+    status: "unavailable",
+    reason: "quota",
+  });
 
   store.seedFinding(id, {
     issueCode: "missing-meta-description",
@@ -218,9 +243,71 @@ describe("GET /audits/:id/report.pdf", () => {
     expect(snapshot.audit.categoryScores?.find((entry) => entry.category === "mobile")?.score).toBeNull();
     expect(snapshot.findings).toHaveLength(3);
     expect(snapshot.severityCounts).toEqual({ critical: 1, high: 0, medium: 1, low: 1 });
+    // The provider section is built from metric rows, with the absences kept as absences.
+    expect(snapshot.metrics?.status).toBe("partial");
+    expect(snapshot.metrics?.providerVersion).toBe("12.6.0");
+    expect(
+      snapshot.metrics?.metrics.find((metric) => metric.metricKey === "largest-contentful-paint")?.value,
+    ).toBe(2100);
+    expect(
+      snapshot.metrics?.metrics.find((metric) => metric.metricKey === "interaction-to-next-paint")?.value,
+    ).toBeNull();
+
     // One page of the seven could not be read, and the report says so.
     expect(snapshot.limitations[0]).toContain("1 of 7 pages could not be read");
     expect(snapshot.branding.agencyName).toBe("Leeds Web Studio");
+  });
+});
+
+describe("GET /audits/:id/metrics", () => {
+  it("returns the provider's numbers with their source, strategy and status", async () => {
+    const response = await call(`/api/v1/audits/${AUDIT_ID}/metrics`, aliceToken);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      data: Array<{ metricKey: string; value: number | null; unit: string; source: string; status: string }>;
+      meta: {
+        provider: string;
+        status: string;
+        counts: Record<string, number>;
+        strategy: string;
+        providerVersion: string;
+      };
+    };
+
+    expect(body.data.map((metric) => metric.metricKey)).toEqual([
+      "interaction-to-next-paint",
+      "largest-contentful-paint",
+      "performance-score",
+    ]);
+    expect(body.data.every((metric) => metric.source === "pagespeed")).toBe(true);
+    const lcp = body.data.find((metric) => metric.metricKey === "largest-contentful-paint");
+    expect(lcp).toMatchObject({ value: 2100, unit: "ms", status: "ok" });
+
+    // An unavailable metric is a row with no number, and the counts say how many of each.
+    const missing = body.data.find((metric) => metric.metricKey === "interaction-to-next-paint");
+    expect(missing).toMatchObject({ value: null, status: "unavailable" });
+    expect(body.meta).toMatchObject({
+      provider: "pagespeed",
+      status: "partial",
+      strategy: "MOBILE",
+      providerVersion: "12.6.0",
+      counts: { ok: 2, unavailable: 1, partial: 0 },
+    });
+  });
+
+  it("says `skipped` for an audit no provider ran for", async () => {
+    const response = await call(`/api/v1/audits/${ALICE_AUDIT}/metrics`, bobToken);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { data: unknown[]; meta: { status: string } };
+    expect(body.data).toEqual([]);
+    expect(body.meta.status).toBe("skipped");
+  });
+
+  it("answers 404 for another tenant", async () => {
+    const response = await call(`/api/v1/audits/${AUDIT_ID}/metrics`, bobToken);
+    expect(response.status).toBe(404);
   });
 });
 

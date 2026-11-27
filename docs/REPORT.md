@@ -25,6 +25,10 @@ The outline is separate from the painter for one reason: everything worth testin
 no summary section is drawn for an audit without one — none of which can be read back out of
 compressed PDF bytes without a text extractor.
 
+The template version is `report-v2`, bumped in Phase 8 when the provider section was added: a
+report is identified by the template that produced it, so a change in layout is a change in
+version.
+
 ## Every number comes from a row
 
 The snapshot is built from `audits`, `audit_findings` and `audit_pages` and nothing else. No site is
@@ -40,7 +44,10 @@ So a report re-rendered from history is the same report, even if the site has ch
 1. **Cover** — agency name (from the profile), host, address, audit id, requested/finished dates.
 2. **Score** — the overall score, then each weighted category with its weight and score. A category
    that was not checked prints **N/A**, never 0.
-3. **Issues by severity** — four counts, in one line, plus how many pages were read.
+3. **Performance (PageSpeed)** — only when a provider ran. Each metric with its unit, the strategy
+   (`mobile`/`desktop`) and the Lighthouse version; a metric the provider did not return is printed
+   as *not measured*, never as 0. When the provider refused, the section is one sentence saying why.
+   When no key was configured the section is absent and a limitation says so.
 4. **Summary** — only when `ai_status = 'ok'`; the model's overview and its top priorities, labelled
    as AI-written. When `ai_status = 'unavailable'` the section says no summary could be produced.
    When `'skipped'`, the section is absent and a limitation says so.
@@ -52,7 +59,7 @@ So a report re-rendered from history is the same report, even if the site has ch
 7. **Limitations** — always: our performance figures are not Lighthouse, accessibility checks are
    not a WCAG certification, the crawl is bounded, findings describe the site as served. Sometimes:
    how many pages could not be read, that the audit is partial, that explanations are missing.
-8. **Versions** — template, rules, scoring, explanation model, generation date.
+8. **Versions** — template, rules, scoring, explanation model, Lighthouse version, generation date.
 
 ## Text that a real website produces
 

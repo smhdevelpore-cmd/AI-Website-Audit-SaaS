@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@siteaudit/config": "0.0.0",
+    "@siteaudit/pagespeed": "0.0.0",
     "@siteaudit/queue": "0.0.0",
     "@siteaudit/shared-types": "0.0.0",
     "@siteaudit/validation": "0.0.0",

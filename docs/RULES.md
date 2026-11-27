@@ -58,8 +58,11 @@ site rules run once. A page that failed to fetch has no parsed data, so no rule 
 | `slow-server-response` | medium | the HTML response took > 2 500 ms | the measured time, labelled as ours, not Lighthouse |
 | `large-page-weight` | medium | the HTML document is > 500 KB | the size in KB |
 
-These are crawl measurements, not provider scores. The report must never present them as
-Lighthouse numbers; Phase 7 adds the provider's LCP/CLS and its own score separately.
+These are crawl measurements, not provider scores. The report never presents them as Lighthouse
+numbers: from Phase 8 the provider's LCP/FCP/CLS/TBT/SI/INP and its own score are stored separately
+and printed in their own section, labelled as Google's (see
+[`PROVIDERS.md`](PROVIDERS.md)). They do not feed this category, so a PageSpeed outage cannot change
+a score — recorded as a deviation under "Why the score does not move" in that document.
 
 ### Mobile (`mobile`, weight 15)
 
@@ -170,6 +173,7 @@ without an `overall_score` and a `scoring_version`.
 | `audit_pages` | one row per fetched page: URL, final URL, status, size, timing, parsed data | `crawling` |
 | `audit_findings` | one row per finding: code, category, severity, evidence, recommendation, page | `rules` |
 | `audits.overall_score`, `audits.category_scores` | the score and per-category scores with their weights | `scoring` |
+| `audit_metrics` | provider numbers with their own status, strategy and reason; `audits.metrics_*` holds the provider's status | `performance` |
 
 `audits.category_scores` is a JSON array of `{category, score, weight}`. The API passes it through
 `toAuditView` with a shape check, so a malformed row cannot become a number a browser treats as a

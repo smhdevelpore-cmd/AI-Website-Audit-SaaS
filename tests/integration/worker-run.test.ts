@@ -103,6 +103,7 @@ describe("runAuditJob", () => {
       saveScores: (id, scores) => data.saveScores(id, scores),
       saveExplanations: (id, explanations) => data.saveExplanations(id, explanations),
       markAiUnavailable: (id) => data.markAiUnavailable(id),
+      saveMetrics: (id, report) => data.saveMetrics(id, report),
     };
 
     const result = await runAuditJob({ auditId: AUDIT_ID, attempt: 1 }, deps({ data: refusing }));

@@ -31,10 +31,15 @@ export interface ReportInputs {
   readonly now?: Date;
 }
 
+function metricsStatus(value: string): "ok" | "partial" | "unavailable" | "skipped" {
+  return value === "ok" || value === "partial" || value === "unavailable" ? value : "skipped";
+}
+
 /** Builds the snapshot from stored rows only. Exported so a test can assert the numbers. */
 export async function buildAuditSnapshot(inputs: ReportInputs): Promise<ReportSnapshot> {
   const findings = await inputs.data.listFindings(inputs.audit.id);
   const pages = await inputs.data.listPageSummaries(inputs.audit.id);
+  const metricRows = await inputs.data.listMetrics(inputs.audit.id);
 
   const mapped: ReportFinding[] = [];
   for (const row of findings) {
@@ -81,6 +86,26 @@ export async function buildAuditSnapshot(inputs: ReportInputs): Promise<ReportSn
       pagesUnreadable: pages.filter((page) => page.fetch_error !== null).length,
       branding: { agencyName: inputs.agencyName },
       rulesVersion: null,
+      // No metric rows and a `skipped` status both mean no provider ran; the section is then
+      // absent rather than an empty table.
+      metrics:
+        metricRows.length === 0 && inputs.audit.metrics_status === "skipped"
+          ? null
+          : {
+              status: metricsStatus(inputs.audit.metrics_status),
+              reason: inputs.audit.metrics_reason,
+              strategy: inputs.audit.metrics_strategy,
+              providerVersion: inputs.audit.metrics_provider_version,
+              measuredAt: inputs.audit.metrics_measured_at,
+              metrics: metricRows.map((row) => ({
+                metricKey: row.metric_key,
+                label: row.label,
+                value: row.value,
+                unit: row.unit,
+                status: row.status,
+                reason: row.reason,
+              })),
+            },
     },
     inputs.now === undefined ? {} : { now: inputs.now },
   );

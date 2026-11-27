@@ -74,7 +74,8 @@ and `Design.md` allows "or similar". The stack is set once in `--font-sans`.
 | `/login`, `/register`, `/forgot-password`, `/reset-password` | wired to the Phase 2 auth operations |
 | `/dashboard` | profile + five most recent audits; empty state offers "Run your first audit" |
 | `/audits` | real list: search, status filter, pagination, per-row status/stage, cancel for queued rows |
-| `/audits/:id` | one audit: status, stage, timestamps, failure reason, the score with each category's weight, the findings worst-first with their evidence, an AI explanation under its own label where one exists, and a download button for the PDF. Polls every 2 s while live, then stops |
+| `/audits/:id` | one audit: status, stage, timestamps, failure reason, the score with each category's weight, PageSpeed's measurements with their units and strategy, the findings worst-first with their
+evidence, an AI explanation under its own label where one exists, and a download button for the PDF. Polls every 2 s while live, then stops |
 | `/settings` | real profile form: `PATCH /profile`, loading, retry, per-field errors, success |
 | `/dev/ui` | component gallery, **development builds only**, every row labelled a fixture |
 | anything else | 404 with a way back |

@@ -72,10 +72,26 @@ const fail = (status: number, code: string, message: string, details?: unknown):
 function stubAuditWithFindings(
   auditData: Record<string, unknown>,
   findings: ReadonlyArray<Record<string, unknown>>,
-  options: { readonly aiStatus?: string } = {},
+  options: {
+    readonly aiStatus?: string;
+    readonly metrics?: ReadonlyArray<Record<string, unknown>>;
+    readonly metricsMeta?: Record<string, unknown>;
+  } = {},
 ): ReturnType<typeof vi.fn> {
   const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes("/metrics")) {
+      return ok(options.metrics ?? [], {
+        provider: "pagespeed",
+        status: "skipped",
+        counts: {},
+        reason: null,
+        strategy: null,
+        providerVersion: null,
+        measuredAt: null,
+        ...(options.metricsMeta ?? {}),
+      });
+    }
     if (url.includes("/findings")) {
       return ok(findings, {
         total: findings.length,
@@ -93,6 +109,22 @@ function stubAuditWithFindings(
   });
   vi.stubGlobal("fetch", fetchStub);
   return fetchStub;
+}
+
+function metric(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "metric-1",
+    category: "performance",
+    metricKey: "largest-contentful-paint",
+    label: "Largest Contentful Paint",
+    value: 2100,
+    unit: "ms",
+    source: "pagespeed",
+    status: "ok",
+    strategy: "MOBILE",
+    reason: null,
+    ...overrides,
+  };
 }
 
 function finding(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -445,6 +477,124 @@ describe("audit detail", () => {
     expect(pdfCall).toBeDefined();
     expect((pdfCall?.[1] as RequestInit).headers).toMatchObject({ authorization: "Bearer token" });
     click.mockRestore();
+  });
+
+  it("shows PageSpeed's measurements with their units and the strategy", async () => {
+    const finished = audit({
+      status: "completed",
+      completedAt: "2026-11-27T09:05:00.000Z",
+      overallScore: 82,
+      categoryScores: [{ category: "performance", score: 100, weight: 25 }],
+      metrics: {
+        status: "ok",
+        reason: null,
+        strategy: "MOBILE",
+        providerVersion: "12.6.0",
+        measuredAt: "2026-11-27T09:00:00.000Z",
+      },
+    });
+    stubAuditWithFindings(finished, [], {
+      metrics: [
+        metric(),
+        metric({
+          id: "metric-2",
+          metricKey: "performance-score",
+          label: "Performance score",
+          value: 72,
+          unit: "score",
+        }),
+        metric({
+          id: "metric-3",
+          metricKey: "cumulative-layout-shift",
+          label: "Cumulative Layout Shift",
+          value: 0.0412,
+          unit: "ratio",
+        }),
+      ],
+      metricsMeta: { status: "ok", strategy: "MOBILE", providerVersion: "12.6.0" },
+    });
+
+    renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
+
+    expect(await screen.findByText("Largest Contentful Paint")).toBeTruthy();
+    expect(screen.getByText("2100 ms")).toBeTruthy();
+    expect(screen.getByText("72 / 100")).toBeTruthy();
+    expect(screen.getByText("0.041")).toBeTruthy();
+    expect(screen.getByText(/mobile · Lighthouse 12.6.0/)).toBeTruthy();
+    expect(screen.getByText(/These figures are Google's/)).toBeTruthy();
+  });
+
+  it("prints a metric the provider did not return as not measured, never as zero", async () => {
+    const finished = audit({
+      status: "partial",
+      completedAt: "2026-11-27T09:05:00.000Z",
+      overallScore: 82,
+      partial: true,
+      categoryScores: [{ category: "performance", score: 100, weight: 25 }],
+      metrics: {
+        status: "partial",
+        reason: null,
+        strategy: "MOBILE",
+        providerVersion: "12.6.0",
+        measuredAt: "2026-11-27T09:00:00.000Z",
+      },
+    });
+    stubAuditWithFindings(finished, [], {
+      metrics: [
+        metric({
+          metricKey: "interaction-to-next-paint",
+          label: "Interaction to Next Paint",
+          value: null,
+          status: "unavailable",
+        }),
+      ],
+      metricsMeta: { status: "partial", strategy: "MOBILE", providerVersion: "12.6.0" },
+    });
+
+    renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
+
+    expect(await screen.findByText("not measured")).toBeTruthy();
+    expect(screen.queryByText("0 ms")).toBeNull();
+  });
+
+  it("says why the metrics are missing when PageSpeed refused", async () => {
+    const finished = audit({
+      status: "partial",
+      completedAt: "2026-11-27T09:05:00.000Z",
+      overallScore: 82,
+      partial: true,
+      categoryScores: [{ category: "performance", score: 100, weight: 25 }],
+      metrics: {
+        status: "unavailable",
+        reason: "quota",
+        strategy: "MOBILE",
+        providerVersion: null,
+        measuredAt: null,
+      },
+    });
+    stubAuditWithFindings(finished, [], {
+      metrics: [],
+      metricsMeta: { status: "unavailable", reason: "quota", strategy: "MOBILE" },
+    });
+
+    renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
+
+    expect(await screen.findByText(/did not return a measurement \(quota\)/)).toBeTruthy();
+    expect(screen.getByText(/do not depend on it/)).toBeTruthy();
+  });
+
+  it("says performance is our own when no provider ran", async () => {
+    const finished = audit({
+      status: "completed",
+      completedAt: "2026-11-27T09:05:00.000Z",
+      overallScore: 82,
+      categoryScores: [{ category: "performance", score: 100, weight: 25 }],
+    });
+    stubAuditWithFindings(finished, []);
+
+    renderScreen(<AuditDetail />, `/audits/${AUDIT_ID}`);
+
+    expect(await screen.findByText(/without Google PageSpeed Insights/)).toBeTruthy();
   });
 
   it("shows why a failed audit failed, and does not offer to cancel it", async () => {

@@ -128,9 +128,9 @@ Verified in this environment: with `REDIS_URL` pointing at a closed port, `/heal
 
 ## 8. What the worker does today
 
-Five steps, in the TRD's order (`apps/worker/src/scan-steps.ts`):
+Six steps, in the TRD's order (`apps/worker/src/scan-steps.ts`):
 
-`queued → running (validating) → crawling → rules → scoring → ai → persisting → completed | partial`
+`queued → running (validating) → crawling → rules → performance → scoring → ai → persisting → completed | partial`
 
 - **crawling** — a bounded crawl of the audit's URL (robots.txt, sitemap, links, page and depth
   caps), storing each page as an `audit_pages` row. If the start page cannot be read the audit
@@ -138,6 +138,11 @@ Five steps, in the TRD's order (`apps/worker/src/scan-steps.ts`):
   retrying it three times would only delay the truth.
 - **rules** — the deterministic rules (`@siteaudit/audit-rules`) over the crawl. Findings are
   written per audit and per page; see [`RULES.md`](RULES.md).
+- **performance** — PageSpeed Insights (`@siteaudit/pagespeed`), optional at boot: with no
+  `PAGESPEED_API_KEY` it returns immediately and `metrics_status` stays `skipped`. The metrics are
+  stored before the score is written so a report can show both, and they **do not** feed the score:
+  a provider outage must not reprice an audit. A provider that returns nothing, or only some
+  metrics, makes the audit **partial**. See [`PROVIDERS.md`](PROVIDERS.md).
 - **scoring** — the weighted score, stored with `scoring_version`, so a `completed` row can never
   exist without the number and the formula that produced them. Scoring is no longer terminal: the
   steps after it must not be able to decide the outcome.
@@ -149,13 +154,14 @@ Five steps, in the TRD's order (`apps/worker/src/scan-steps.ts`):
 - **persisting** — decides `completed` or `partial` and records `pages_scanned`. It is the step that
   finishes an audit, which is what keeps a slow provider from being a correctness problem.
 
-A page that failed to fetch (a timeout, a PDF served at a page URL) makes the audit **partial**:
-the results cover what was read. A site that answered nothing is **failed**. Neither case invents
-a result, and a failed audit carries no score at all.
+A page that failed to fetch (a timeout, a PDF served at a page URL), or a provider that returned no
+metrics, makes the audit **partial**: the results cover only part of what the audit is meant to
+show. A site that answered nothing is **failed**. No case invents a result, and a failed audit
+carries no score at all. An audit made with no provider key is **completed** with
+`metrics_status = 'skipped'`: nothing was promised that is missing.
 
-Not yet in the pipeline: the PageSpeed provider (Phase 8). Its stage (`performance`) already exists
-in the schema, so it slots in between `rules` and `scoring` without a migration, and its metrics have
-their own status rather than borrowing the score's.
+Every stage in `AUDIT_STAGES` is now used except `links`, which is a category rather than a step:
+link findings are produced by the `rules` step and charged to Technical.
 
 ## 9. Running it
 
