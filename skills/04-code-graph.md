@@ -43,6 +43,10 @@ Then call it by path — `graphify` is not on `PATH`:
 Python floor upstream is 3.11.5; this sandbox has 3.11.2, and pip resolves `0.9.112`, which
 runs fine. If a future version refuses to install, that is why.
 
+This is a **developer tool, never a product dependency** — it lives in `.venv/`, out of
+`package.json`, out of the build, out of production. That is the exception [01](01-craft.md)
+allows: it buys us a whole codebase map, not a few lines of code.
+
 ## Build
 
 ```bash

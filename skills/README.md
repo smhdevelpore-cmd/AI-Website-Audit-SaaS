@@ -5,7 +5,7 @@ this repo works by. Mostly distilled rather than vendored: if you want the full 
 material — 50 themes, 141 UX guidelines, the entire gate table — install it from source.
 
 The exception is graphify, which is **installed for real** and not merely described: the
-upstream skill sits unchanged at [`.agents/skills/graphify/`](.agents/skills/graphify/SKILL.md)
+upstream skill sits unchanged at [`.agents/skills/graphify/`](../.agents/skills/graphify/SKILL.md)
 (Apache-2.0), the CLI runs from `.venv/`, and [04](04-code-graph.md) is the house version with
 the numbers we measured. Install it in one line: `python3 -m venv .venv && .venv/bin/pip
 install -q graphifyy`.
